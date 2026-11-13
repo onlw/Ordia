@@ -57,16 +57,17 @@
 - 完成记录（2026-11-14）：完成了 `ordia-sheet-engine` 的零泄露抽象层（`SheetEngine` trait、零基 `CellCoord`/`CellRange`、`CellValue`、`FormulaError`、`CellStyle`、`FreezePane`、`SheetInfo`、`RowMetric`/`ColSpanMetric`）与 `IronCalcEngine` 实现（含原子临时文件写回与缓存值保留加载）；创建并登记了 `corpus/public/m0_budget_sample.xlsx`（`corpus/manifest.toml`），通过了语料往返、动态数组/现代函数与公开 API 零泄露自动化测试；产出了包含 14 项能力矩阵、497 个内置函数分类统计与自研/上游分工方案的 `docs/research/m0-ironcalc.md`。
 
 ### M0-04 大数据量性能实测
-- 状态：TODO
+- 状态：DONE
 - 依赖：M0-03
 - 交付物：
   - `ordia-bench` 中的生成器：生成 1 万、10 万、100 万行 × 20 列的 xlsx（混合数字、文本、日期、约 10% 的公式）
   - 测量 IronCalc 的加载时间、内存峰值、全量重算时间、单格修改后的增量重算时间、保存时间
   - 报告 `docs/research/m0-perf.md`：给出数据，判断是否需要在引擎接口后面加列式存储或只读快照层，并给出建议
 - 验收标准：
-  - [ ] `cargo xtask bench --suite engine` 能输出上述全部指标
-  - [ ] 报告给出明确结论（够用 / 需要优化，以及优化方向）
+  - [x] `cargo xtask bench --suite engine` 能输出上述全部指标
+  - [x] 报告给出明确结论（够用 / 需要优化，以及优化方向）
 - 验证命令：`cargo xtask bench --suite engine`
+- 完成记录（2026-11-14）：实现了 `ordia-bench` 流式低内存 `.xlsx` 生成器（70% 数值、10% 日期、10% 中英文本、10% 共享与逐行公式）及独立子进程隔离的 `engine` 性能套件，并接入 `cargo xtask bench --suite engine`；实测 `100k × 20` 净内存 `182.9 MB` / 重算 `134.7 ms`，`1M × 20`（2000 万格、200 万公式）净内存 `1.86 GB` / 全量重算 `1.45 s` / 单格增量重算 `1.54 s`；在 `docs/research/m0-perf.md` 中确立了".xlsx 保留 IronCalc 主存储 + 首屏先读缓存值后台重算 + CSV 采用独立列式后端 + 视图层 64×16 分块缓存"的架构结论。
 
 ### M0-05 网格渲染与中文输入法原型
 - 状态：TODO

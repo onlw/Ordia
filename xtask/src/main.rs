@@ -147,10 +147,7 @@ fn main() -> Result<()> {
             println!("corpus check (full={full}, recalc={recalc}): no corpus registered yet");
             Ok(())
         }
-        TaskCommand::Bench { suite } => {
-            println!("bench suite `{suite}`: use M0-04 implementation once wired");
-            Ok(())
-        }
+        TaskCommand::Bench { suite } => run_bench(&root, &suite),
         TaskCommand::Bundle => {
             println!("bundle task: implemented in M1-08");
             Ok(())
@@ -203,6 +200,22 @@ fn run_ci(root: &Path) -> Result<()> {
 
     println!("CI checks passed.");
     Ok(())
+}
+
+fn run_bench(root: &Path, suite: &str) -> Result<()> {
+    run_cmd(
+        root,
+        "cargo",
+        &[
+            "run",
+            "--release",
+            "-p",
+            "ordia-bench",
+            "--",
+            "--suite",
+            suite,
+        ],
+    )
 }
 
 fn run_i18n_check(root: &Path) -> Result<()> {

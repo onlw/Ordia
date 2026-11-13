@@ -8,10 +8,18 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+anyhow.workspace = true
+clap.workspace = true
 ordia-core.workspace = true
+ordia-csv.workspace = true
 ordia-sheet-engine.workspace = true
 ordia-xlsx.workspace = true
-ordia-csv.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+zip.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true

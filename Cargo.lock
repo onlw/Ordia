@@ -5227,10 +5227,16 @@ dependencies = [
 name = "ordia-bench"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "clap",
  "ordia-core",
  "ordia-csv",
  "ordia-sheet-engine",
  "ordia-xlsx",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "zip",
 ]
 
 [[package]]
