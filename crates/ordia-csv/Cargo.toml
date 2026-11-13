@@ -1,0 +1,14 @@
+[package]
+name = "ordia-csv"
+description = "High-throughput streaming and parallel CSV/TSV parser and writer with encoding auto-detection."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+ordia-core.workspace = true
+
+[lints]
+workspace = true

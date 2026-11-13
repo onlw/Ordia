@@ -1,0 +1,11 @@
+[package]
+name = "ordia-i18n"
+description = "Internationalization and localization resources (zh-CN and en) for Ordia."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true

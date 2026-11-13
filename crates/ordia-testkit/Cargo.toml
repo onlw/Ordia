@@ -1,0 +1,17 @@
+[package]
+name = "ordia-testkit"
+description = "Corpus runner, xlsx round-trip comparator, formula recalc checker, and visual snapshot helpers."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+ordia-core.workspace = true
+ordia-render.workspace = true
+ordia-sheet-engine.workspace = true
+ordia-xlsx.workspace = true
+
+[lints]
+workspace = true

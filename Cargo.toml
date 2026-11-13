@@ -1,0 +1,110 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/ordia-app",
+    "crates/ordia-bench",
+    "crates/ordia-chart",
+    "crates/ordia-core",
+    "crates/ordia-csv",
+    "crates/ordia-i18n",
+    "crates/ordia-render",
+    "crates/ordia-render-gpui",
+    "crates/ordia-render-pdf",
+    "crates/ordia-sheet-engine",
+    "crates/ordia-sheet-layout",
+    "crates/ordia-sheet-model",
+    "crates/ordia-sheet-view",
+    "crates/ordia-testkit",
+    "crates/ordia-text",
+    "crates/ordia-ui",
+    "crates/ordia-xlsx",
+    "xtask",
+]
+default-members = ["crates/ordia-app"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+license = "Apache-2.0"
+repository = "https://github.com/onlw/Ordia"
+
+[workspace.lints.rust]
+missing_docs = "warn"
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+unwrap_used = "warn"
+dbg_macro = "warn"
+todo = "warn"
+
+[workspace.dependencies]
+# Internal workspace crates
+ordia-app = { version = "0.1.0", path = "crates/ordia-app" }
+ordia-bench = { version = "0.1.0", path = "crates/ordia-bench" }
+ordia-chart = { version = "0.1.0", path = "crates/ordia-chart" }
+ordia-core = { version = "0.1.0", path = "crates/ordia-core" }
+ordia-csv = { version = "0.1.0", path = "crates/ordia-csv" }
+ordia-i18n = { version = "0.1.0", path = "crates/ordia-i18n" }
+ordia-render = { version = "0.1.0", path = "crates/ordia-render" }
+ordia-render-gpui = { version = "0.1.0", path = "crates/ordia-render-gpui" }
+ordia-render-pdf = { version = "0.1.0", path = "crates/ordia-render-pdf" }
+ordia-sheet-engine = { version = "0.1.0", path = "crates/ordia-sheet-engine" }
+ordia-sheet-layout = { version = "0.1.0", path = "crates/ordia-sheet-layout" }
+ordia-sheet-model = { version = "0.1.0", path = "crates/ordia-sheet-model" }
+ordia-sheet-view = { version = "0.1.0", path = "crates/ordia-sheet-view" }
+ordia-testkit = { version = "0.1.0", path = "crates/ordia-testkit" }
+ordia-text = { version = "0.1.0", path = "crates/ordia-text" }
+ordia-ui = { version = "0.1.0", path = "crates/ordia-ui" }
+ordia-xlsx = { version = "0.1.0", path = "crates/ordia-xlsx" }
+
+# UI framework (locked via gpui-kit)
+gpui-kit = { version = "=0.9.1", default-features = false, features = ["component", "assets"] }
+
+# Spreadsheet calculation & OOXML
+ironcalc = "=0.9.1"
+ironcalc_base = "=0.9.1"
+zip = { version = "9.0", default-features = false, features = ["deflate"] }
+quick-xml = "0.42"
+
+# Text, PDF, and raster rendering
+fontdb = "0.24"
+krilla = "0.8"
+tiny-skia = "0.12"
+
+# CSV & text encoding
+encoding_rs = "0.8"
+memchr = "2.8"
+rayon = "1.12"
+
+# Serialization, CLI, diagnostics, and utilities
+anyhow = "1.0"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
+clap = { version = "4.6", features = ["derive"] }
+crc32fast = "1.5"
+dirs = "7.0"
+postcard = { version = "1.1", features = ["use-std"] }
+regex = "1.13"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+toml = "1.2"
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# Testing & benchmarking
+insta = { version = "1.49", features = ["yaml"] }
+proptest = "1.12"
+tempfile = "3.27"
+
+[profile.dev]
+debug = 0
+
+[profile.test]
+debug = 0
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

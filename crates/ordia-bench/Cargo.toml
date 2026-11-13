@@ -1,0 +1,17 @@
+[package]
+name = "ordia-bench"
+description = "Synthetic workbook generators and end-to-end performance benchmark suites for Ordia."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+ordia-core.workspace = true
+ordia-sheet-engine.workspace = true
+ordia-xlsx.workspace = true
+ordia-csv.workspace = true
+
+[lints]
+workspace = true

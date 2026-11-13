@@ -1,0 +1,17 @@
+[package]
+name = "ordia-sheet-view"
+description = "GPUI custom virtualized spreadsheet grid Element, formula bar, and sheet tabs."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+ordia-render.workspace = true
+ordia-render-gpui.workspace = true
+ordia-sheet-model.workspace = true
+ordia-sheet-layout.workspace = true
+
+[lints]
+workspace = true

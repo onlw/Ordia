@@ -1,0 +1,31 @@
+[package]
+name = "ordia-app"
+description = "Ordia cross-platform desktop office suite application."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+default-run = "ordia-app"
+
+[lib]
+name = "ordia_app"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ordia-app"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+ordia-core.workspace = true
+ordia-i18n.workspace = true
+ordia-ui.workspace = true
+ordia-sheet-model.workspace = true
+ordia-sheet-view.workspace = true
+ordia-xlsx.workspace = true
+ordia-csv.workspace = true
+ordia-render-pdf.workspace = true
+
+[lints]
+workspace = true

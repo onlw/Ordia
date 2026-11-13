@@ -1,0 +1,16 @@
+[package]
+name = "ordia-sheet-layout"
+description = "Grid geometry, Fenwick/segment-tree coordinate index, tiling, pagination, and DisplayList layout."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+ordia-render.workspace = true
+ordia-text.workspace = true
+ordia-sheet-model.workspace = true
+
+[lints]
+workspace = true

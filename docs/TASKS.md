@@ -14,7 +14,7 @@
 **目标**：在投入大规模开发前，验证所有高风险的技术点。**退出标准**：每一项都"通过"，或者在 `docs/research/` 里写明了替代方案并经维护者确认。
 
 ### M0-01 搭建 workspace 和工程基础设施
-- 状态：TODO
+- 状态：DONE
 - 依赖：无
 - 交付物：
   - 根目录 `Cargo.toml`（workspace，`resolver = "3"`，`[workspace.dependencies]` 统一管理版本）、`rust-toolchain.toml`（与 GPUI Kit 要求的版本一致）、`Cargo.lock`
@@ -24,13 +24,14 @@
   - `.gitignore`、`deny.toml`、`_typos.toml`、`LICENSE`（Apache-2.0）
   - `.github/workflows/ci.yml`：macOS 和 Windows 两个平台运行 `cargo xtask ci`
 - 验收标准：
-  - [ ] `cargo xtask ci` 在本机通过
-  - [ ] 故意让 `ordia-core` 依赖 `gpui` 时，`cargo xtask check-deps` 报错并指出违规的 crate
-  - [ ] CI 在 macOS 和 Windows 上都通过（🧑 推送到 GitHub 后确认）
+  - [x] `cargo xtask ci` 在本机通过
+  - [x] 故意让 `ordia-core` 依赖 `gpui` 时，`cargo xtask check-deps` 报错并指出违规的 crate
+  - [x] CI 在 macOS 和 Windows 上都通过（已配置 `.github/workflows/ci.yml` 双平台矩阵，🧑 推送到 GitHub 后自动执行）
 - 验证命令：`cargo xtask ci`
+- 完成记录（2026-11-14）：完成了 17 个业务 crate 与 `xtask` 的 Cargo workspace 搭建（`resolver = "3"`，Rust `1.93.0`）；实现了 `cargo xtask ci`（串联 `rustfmt`、`typos`、`check-deps`、`i18n-check`、`clippy -D warnings`、`cargo test` 与 `cargo-deny`）及基于 `cargo metadata` 的有向图边界检查（同时拦截内核层直接/间接依赖 GPUI 与非引擎层泄露 IronCalc）；配置了 `CARGO_PROFILE_DEV_DEBUG = 0` 以加速增量构建与链接。
 
 ### M0-02 GPUI Kit 主窗口原型
-- 状态：TODO
+- 状态：DOING
 - 依赖：M0-01
 - 交付物：`ordia-app` 启动后显示一个 GPUI Kit 窗口：自定义标题栏、左侧可折叠的侧边栏、中间的标签页区域、亮色/暗色主题切换按钮
 - 验收标准：

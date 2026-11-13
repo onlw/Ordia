@@ -1,0 +1,11 @@
+[package]
+name = "ordia-text"
+description = "Font discovery, metric-compatible substitution, fallback chains, and text metrics for Ordia."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true

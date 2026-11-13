@@ -1,0 +1,17 @@
+[files]
+extend-exclude = [
+    "Cargo.lock",
+    ".agents/**",
+    ".claude/**",
+    "corpus/**",
+    "assets/**",
+    "**/*.snap",
+]
+
+[default.extend-words]
+ordia = "ordia"
+Ordia = "Ordia"
+strs = "strs"
+rels = "rels"
+numfmt = "numfmt"
+numfmts = "numfmts"
