@@ -3,6 +3,7 @@ name = "ordia-app"
 description = "Ordia cross-platform desktop office suite application."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
@@ -18,6 +19,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
+gpui-kit.workspace = true
 ordia-core.workspace = true
 ordia-i18n.workspace = true
 ordia-ui.workspace = true
@@ -26,6 +28,9 @@ ordia-sheet-view.workspace = true
 ordia-xlsx.workspace = true
 ordia-csv.workspace = true
 ordia-render-pdf.workspace = true
+
+[dev-dependencies]
+gpui-kit = { workspace = true, features = ["test-support"] }
 
 [lints]
 workspace = true

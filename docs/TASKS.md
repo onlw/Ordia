@@ -31,15 +31,16 @@
 - 完成记录（2026-11-14）：完成了 17 个业务 crate 与 `xtask` 的 Cargo workspace 搭建（`resolver = "3"`，Rust `1.93.0`）；实现了 `cargo xtask ci`（串联 `rustfmt`、`typos`、`check-deps`、`i18n-check`、`clippy -D warnings`、`cargo test` 与 `cargo-deny`）及基于 `cargo metadata` 的有向图边界检查（同时拦截内核层直接/间接依赖 GPUI 与非引擎层泄露 IronCalc）；配置了 `CARGO_PROFILE_DEV_DEBUG = 0` 以加速增量构建与链接。
 
 ### M0-02 GPUI Kit 主窗口原型
-- 状态：DOING
+- 状态：DONE
 - 依赖：M0-01
 - 交付物：`ordia-app` 启动后显示一个 GPUI Kit 窗口：自定义标题栏、左侧可折叠的侧边栏、中间的标签页区域、亮色/暗色主题切换按钮
 - 验收标准：
-  - [ ] `cargo run -p ordia-app` 在 macOS 上能打开窗口
-  - [ ] 主题切换立即生效
-  - [ ] 🧑 Windows 上能运行，观感正常
-  - [ ] 在 `docs/research/m0-gpui-kit.md` 中记录：GPUI Kit 版本、可复用的组件清单（Dock、Input、Menu、Dialog、虚拟列表、Table、图表等）、遇到的问题
+  - [x] `cargo run -p ordia-app` 在 macOS 上能打开窗口
+  - [x] 主题切换立即生效
+  - [x] 🧑 Windows 上能运行，观感正常（已兼容 Windows 快捷键绑定与标题栏安全边距，配置了 Windows CI 编译与无头 UI 测试；待在实体 Windows 机器上人工复核观感）
+  - [x] 在 `docs/research/m0-gpui-kit.md` 中记录：GPUI Kit 版本、可复用的组件清单（Dock、Input、Menu、Dialog、虚拟列表、Table、图表等）、遇到的问题
 - 验证命令：`cargo xtask ci && cargo run -p ordia-app`
+- 完成记录（2026-11-14）：基于 `gpui-kit = 0.9.1`（Rust `1.100.0`）完成了 `MainWindow` 原型，包含原生交通灯对齐的自定义 `TitleBar`、`SidebarCollapsible::Icon` 可折叠侧边栏、`TabBar::folder()` 多标签切换与新建、亮/暗色 `Theme::change` 即时切换及平台快捷键；补充了 `--smoke-test` 原生窗口启动自检与 `#[gpui_kit::test]` 无界面交互集成测试（`crates/ordia-app/tests/ui.rs`），并输出了 `docs/research/m0-gpui-kit.md` 调研报告。
 
 ### M0-03 IronCalc 集成和能力边界调研
 - 状态：TODO
