@@ -8,7 +8,14 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+ironcalc.workspace = true
+ironcalc_base.workspace = true
 ordia-core.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true

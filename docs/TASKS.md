@@ -43,17 +43,18 @@
 - 完成记录（2026-11-14）：基于 `gpui-kit = 0.9.1`（Rust `1.100.0`）完成了 `MainWindow` 原型，包含原生交通灯对齐的自定义 `TitleBar`、`SidebarCollapsible::Icon` 可折叠侧边栏、`TabBar::folder()` 多标签切换与新建、亮/暗色 `Theme::change` 即时切换及平台快捷键；补充了 `--smoke-test` 原生窗口启动自检与 `#[gpui_kit::test]` 无界面交互集成测试（`crates/ordia-app/tests/ui.rs`），并输出了 `docs/research/m0-gpui-kit.md` 调研报告。
 
 ### M0-03 IronCalc 集成和能力边界调研
-- 状态：TODO
+- 状态：DONE
 - 依赖：M0-01
 - 交付物：
   - `ordia-sheet-engine` 定义最小的引擎接口（trait）：加载 xlsx、读写单元格输入和值、读取样式、读取合并区域、冻结信息、工作表列表、保存 xlsx
   - 基于 IronCalc 的实现，所有 IronCalc 类型都不出现在公开 API 中
   - 调研报告 `docs/research/m0-ironcalc.md`，逐项说明 IronCalc 对以下功能的支持情况（支持 / 部分支持 / 不支持，读和写分别说明）：合并单元格、冻结窗格、数字格式、条件格式、数据验证、图表、批注、超链接、筛选、隐藏行列、定义名称、数组公式和动态数组、撤销重做（`UserModel`）、变更通知；另外附上函数覆盖情况的统计
 - 验收标准：
-  - [ ] 单元测试：加载语料库中的示例 xlsx，读出指定单元格的值和公式，修改后保存，再重新加载，值一致
-  - [ ] 公开 API 里没有 IronCalc 的类型（用 `cargo doc` 检查，或者写测试确认）
-  - [ ] 调研报告完整，并给出"缺失功能由谁来补（Ordia 自己实现 / 贡献上游）"的建议
+  - [x] 单元测试：加载语料库中的示例 xlsx，读出指定单元格的值和公式，修改后保存，再重新加载，值一致
+  - [x] 公开 API 里没有 IronCalc 的类型（用 `cargo doc` 检查，或者写测试确认）
+  - [x] 调研报告完整，并给出"缺失功能由谁来补（Ordia 自己实现 / 贡献上游）"的建议
 - 验证命令：`cargo test -p ordia-sheet-engine`
+- 完成记录（2026-11-14）：完成了 `ordia-sheet-engine` 的零泄露抽象层（`SheetEngine` trait、零基 `CellCoord`/`CellRange`、`CellValue`、`FormulaError`、`CellStyle`、`FreezePane`、`SheetInfo`、`RowMetric`/`ColSpanMetric`）与 `IronCalcEngine` 实现（含原子临时文件写回与缓存值保留加载）；创建并登记了 `corpus/public/m0_budget_sample.xlsx`（`corpus/manifest.toml`），通过了语料往返、动态数组/现代函数与公开 API 零泄露自动化测试；产出了包含 14 项能力矩阵、497 个内置函数分类统计与自研/上游分工方案的 `docs/research/m0-ironcalc.md`。
 
 ### M0-04 大数据量性能实测
 - 状态：TODO

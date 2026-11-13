@@ -1,0 +1,20 @@
+# Ordia Test Corpus Manifest
+# Every file under `corpus/` MUST be registered here with explicit provenance and an OSI-approved license.
+
+[[files]]
+path = "public/m0_budget_sample.xlsx"
+source = "Created by Ordia project (synthetic bilingual budget & formula sample)"
+license = "Apache-2.0"
+tier = "P0"
+features = [
+    "values",
+    "cjk_text",
+    "formulas",
+    "styles",
+    "merged_cells",
+    "frozen_panes",
+    "multi_sheet",
+    "defined_names",
+]
+expect_load = true
+expect_recalc_match = true
