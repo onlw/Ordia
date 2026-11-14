@@ -5464,6 +5464,7 @@ dependencies = [
 name = "ordia-ui"
 version = "0.1.0"
 dependencies = [
+ "gpui-kit",
  "ordia-i18n",
 ]
 

@@ -4,7 +4,7 @@
 pub mod platform;
 
 use gpui_kit::component::{
-    ActiveTheme as _, Icon, IconName, Sizable as _, StyledExt as _, Theme, ThemeMode, TitleBar,
+    ActiveTheme as _, Icon, IconName, Sizable as _, StyledExt as _, ThemeMode, TitleBar,
     button::{Button, ButtonVariants as _},
     h_flex,
     sidebar::{
@@ -133,6 +133,20 @@ pub fn register_bindings_and_menus(cx: &mut App) {
     ]);
 }
 
+/// Opens the interactive Ordia Design System Gallery window (`--gallery`).
+pub fn open_design_gallery(
+    cx: &mut App,
+) -> anyhow::Result<(
+    gpui_kit::AnyWindowHandle,
+    Entity<ordia_ui::DesignGalleryView>,
+)> {
+    let options = default_window_options(cx);
+    let opened = gpui_kit::open_window(options, cx, |window, cx| {
+        cx.new(|cx| ordia_ui::DesignGalleryView::new(window, cx))
+    })?;
+    Ok(opened)
+}
+
 /// Builds default window options using GPUI Kit's custom title bar chrome.
 ///
 /// Uses explicit initial window bounds (`1200x780`) and minimum window dimensions (`720x480`),
@@ -162,6 +176,7 @@ pub struct MainWindow {
 impl MainWindow {
     /// Constructs a new main window view with starter workbook tabs.
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        ordia_ui::apply_ordia_theme(cx.theme().mode, Some(window), cx);
         let focus_handle = cx.focus_handle().tab_stop(true);
         let tabs = vec![
             WorkbookTab::new(
@@ -224,6 +239,7 @@ impl MainWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        ordia_ui::apply_ordia_theme(cx.theme().mode, Some(window), cx);
         let focus_handle = cx.focus_handle().tab_stop(true);
         let title = doc.title().to_string();
         let sheet_count = doc.sheet_count();
@@ -308,7 +324,7 @@ impl MainWindow {
         } else {
             ThemeMode::Dark
         };
-        Theme::change(next_mode, Some(window), cx);
+        ordia_ui::apply_ordia_theme(next_mode, Some(window), cx);
         cx.notify();
     }
 

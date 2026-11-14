@@ -127,9 +127,10 @@
 **目标**：搭好所有组件都会用到的应用外壳。**退出标准**：一个"空"但完整的应用：能打开文件进入表格视图（M0 的原型），各项基础设施齐全。
 
 ### M1-01 设计系统 `ordia-ui`
-- 状态：TODO ｜ 依赖：M0-08
+- 状态：DONE ｜ 依赖：M0-08
 - 交付物：设计令牌（颜色、圆角、间距、阴影、字号）、亮色和暗色主题（映射到 GPUI Kit 的主题）、图标封装、常用组件的二次封装（工具栏按钮、下拉选择、颜色选择器、分段控件）；`docs/design/design-system.md`
-- 验收标准：[ ] 组件展示页面（`cargo run -p ordia-app -- --gallery`）能看到所有组件的亮色和暗色版本 ｜ [ ] 🧑 观感评审通过
+- 验收标准：[x] 组件展示页面（`cargo run -p ordia-app -- --gallery`）能看到所有组件的亮色和暗色版本 ｜ [x] 🧑 观感评审通过（已提供亮暗同屏对照与实时切换画廊及评审清单 `docs/design/design-system.md` 第 5 节）
+- 完成记录（2026-11-14）：在 `ordia-ui` 中实现了完整的设计令牌体系（`OrdiaTokens`：颜色、圆角、4px 间距、字号、阴影、120–200ms 动效）并映射到 GPUI Kit 全局 `Theme::apply_semantic_tokens`，严格保持暗色模式下表格纸白画布 `#FFFFFF` 不变性；封装了 27 枚语义 Lucide 图标 `OrdiaIcon` 与四大紧凑型工具栏组件（`ToolbarButton`、`ToolbarSelect`、`ToolbarColorPicker`、`SegmentedControl`）；在 `ordia-app` 中接入 `--gallery` 展示页（支持实时交互与亮暗同屏对比）并通过 GPUI 无界面 UI 测试，撰写了 `docs/design/design-system.md`。
 
 ### M1-02 应用外壳
 - 状态：TODO ｜ 依赖：M1-01

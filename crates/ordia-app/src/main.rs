@@ -23,6 +23,10 @@ struct CliArgs {
     /// Exports the active worksheet's used range to `<EXPORT_PDF>` with subsetted CJK fonts and exits.
     #[arg(long)]
     export_pdf: Option<PathBuf>,
+
+    /// Opens the interactive Ordia Design System Gallery window (Light + Dark tokens and components).
+    #[arg(long)]
+    gallery: bool,
 }
 
 fn main() {
@@ -62,6 +66,25 @@ fn main() {
         .run(move |cx| {
             gpui_kit::init(cx);
             ordia_app::register_bindings_and_menus(cx);
+
+            if args.gallery {
+                if let Err(err) = ordia_app::open_design_gallery(cx) {
+                    eprintln!("failed to open Ordia design gallery: {err}");
+                    cx.quit();
+                    return;
+                }
+                cx.activate(true);
+                if args.smoke_test {
+                    cx.spawn(async move |cx| {
+                        cx.background_executor()
+                            .timer(Duration::from_millis(250))
+                            .await;
+                        cx.update(|cx| cx.quit());
+                    })
+                    .detach();
+                }
+                return;
+            }
 
             let t0 = Instant::now();
             let (_handle, main_window) =
