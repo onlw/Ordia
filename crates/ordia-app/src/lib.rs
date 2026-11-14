@@ -1,98 +1,74 @@
 //! Application shell, window management, commands, settings, and platform integration for Ordia.
 
+mod home_view;
 /// Platform-specific native integrations (`macos`, `windows`).
 pub mod platform;
+mod shell_chrome;
+/// Domain data types for the application shell (`WorkbookTab`, `RecentFileEntry`, `SidebarSection`).
+pub mod shell_types;
+mod title_tabs;
 
+use std::path::{Path, PathBuf};
+
+use gpui_kit::base::GlobalState;
+#[cfg(not(target_os = "macos"))]
+use gpui_kit::component::menu::AppMenuBar;
 use gpui_kit::component::{
-    ActiveTheme as _, Icon, IconName, Sizable as _, StyledExt as _, ThemeMode, TitleBar,
-    button::{Button, ButtonVariants as _},
-    h_flex,
-    sidebar::{
-        Sidebar, SidebarCollapsible, SidebarFooter, SidebarGroup, SidebarHeader, SidebarMenu,
-        SidebarMenuItem, SidebarToggleButton,
-    },
-    tab::{Tab, TabBar},
-    v_flex,
+    ActiveTheme as _, ThemeMode, TitleBar, color_picker::ColorPickerState, h_flex, v_flex,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    App, AppContext as _, Bounds, Context, Entity, FocusHandle, Focusable, InteractiveElement as _,
-    IntoElement, KeyBinding, Menu, MenuItem, ParentElement as _, Render, SharedString, Styled as _,
-    Window, WindowBounds, WindowOptions, div, px, size,
+    App, AppContext as _, Bounds, Context, Entity, ExternalPaths, FocusHandle, Focusable,
+    InteractiveElement as _, IntoElement, KeyBinding, Menu, MenuItem, OwnedMenu,
+    ParentElement as _, Render, Styled as _, Window, WindowBounds, WindowOptions, px, size,
 };
 use ordia_sheet_model::SheetDocument;
-use ordia_sheet_view::{SheetWorkspaceView, register_sheet_keybindings};
-use std::path::Path;
+use ordia_sheet_view::{RedoEdit, SheetWorkspaceView, UndoEdit, register_sheet_keybindings};
+use ordia_ui::{
+    OrdiaTokens, ToolbarSelectState, new_toolbar_color_picker_state, new_toolbar_select_state,
+};
+
+pub use shell_types::{RecentFileEntry, SidebarSection, WorkbookTab};
 
 /// Keyboard and menu command actions for the application shell.
 #[allow(missing_docs)]
 pub mod app_actions {
     gpui_kit::actions!(
         ordia_app,
-        [Quit, ToggleTheme, ToggleSidebar, NewWorkbookTab]
+        [
+            Quit,
+            ToggleTheme,
+            ToggleSidebar,
+            ToggleInspector,
+            NewWorkbookTab,
+            CloseActiveTab,
+            NewWindow,
+            ShowHome
+        ]
     );
 }
-pub use app_actions::{NewWorkbookTab, Quit, ToggleSidebar, ToggleTheme};
+pub use app_actions::{
+    CloseActiveTab, NewWindow, NewWorkbookTab, Quit, ShowHome, ToggleInspector, ToggleSidebar,
+    ToggleTheme,
+};
 
 /// Returns the application display name.
 pub const fn app_name() -> &'static str {
     "Ordia"
 }
 
-/// Identifies sidebar navigation sections in the application shell.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SidebarSection {
-    /// Recent workbooks and quick-open list.
-    Recent,
-    /// Built-in spreadsheet templates.
-    Templates,
-    /// Application preferences.
-    Settings,
-}
-
-/// Metadata for an open workbook tab in the shell.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct WorkbookTab {
-    id: u64,
-    title: SharedString,
-    summary: SharedString,
-}
-
-impl WorkbookTab {
-    /// Creates a workbook tab descriptor with a stable numeric identifier.
-    pub fn new(id: u64, title: impl Into<SharedString>, summary: impl Into<SharedString>) -> Self {
-        Self {
-            id,
-            title: title.into(),
-            summary: summary.into(),
-        }
-    }
-
-    /// Stable numeric identifier for `ElementId` keying.
-    pub fn id(&self) -> u64 {
-        self.id
-    }
-
-    /// Display title shown in the tab bar.
-    pub fn title(&self) -> &SharedString {
-        &self.title
-    }
-
-    /// Description rendered in the workspace summary area.
-    pub fn summary(&self) -> &SharedString {
-        &self.summary
-    }
-}
-
-/// Registers global keyboard shortcuts and native application menus.
-///
-/// Key bindings are registered before `set_menus` so shortcuts appear in native menus.
+/// Registers global keyboard shortcuts, macOS native menu bar, and Windows/Linux `AppMenuBar` menus.
 pub fn register_bindings_and_menus(cx: &mut App) {
     #[cfg(target_os = "macos")]
     let bindings = [
         KeyBinding::new("cmd-q", Quit, None),
         KeyBinding::new("cmd-b", ToggleSidebar, None),
+        KeyBinding::new("cmd-alt-i", ToggleInspector, None),
         KeyBinding::new("cmd-t", NewWorkbookTab, None),
+        KeyBinding::new("cmd-n", NewWorkbookTab, None),
+        KeyBinding::new("cmd-w", CloseActiveTab, None),
+        KeyBinding::new("cmd-shift-n", NewWindow, None),
+        KeyBinding::new("cmd-shift-h", ShowHome, None),
         KeyBinding::new("cmd-shift-d", ToggleTheme, None),
     ];
 
@@ -100,7 +76,12 @@ pub fn register_bindings_and_menus(cx: &mut App) {
     let bindings = [
         KeyBinding::new("ctrl-q", Quit, None),
         KeyBinding::new("ctrl-b", ToggleSidebar, None),
+        KeyBinding::new("ctrl-alt-i", ToggleInspector, None),
         KeyBinding::new("ctrl-t", NewWorkbookTab, None),
+        KeyBinding::new("ctrl-n", NewWorkbookTab, None),
+        KeyBinding::new("ctrl-w", CloseActiveTab, None),
+        KeyBinding::new("ctrl-shift-n", NewWindow, None),
+        KeyBinding::new("ctrl-shift-h", ShowHome, None),
         KeyBinding::new("ctrl-shift-d", ToggleTheme, None),
     ];
 
@@ -110,27 +91,53 @@ pub fn register_bindings_and_menus(cx: &mut App) {
     cx.on_action(|_: &Quit, cx| {
         cx.quit();
     });
+    cx.on_action(|_: &NewWindow, cx| {
+        let _ = MainWindow::open(cx);
+    });
 
-    cx.set_menus(vec![
-        Menu {
-            name: "Ordia".into(),
-            items: vec![MenuItem::action("Quit Ordia", Quit)],
-            disabled: false,
-        },
-        Menu {
-            name: "File".into(),
-            items: vec![MenuItem::action("New Workbook", NewWorkbookTab)],
-            disabled: false,
-        },
-        Menu {
-            name: "View".into(),
-            items: vec![
-                MenuItem::action("Toggle Sidebar", ToggleSidebar),
-                MenuItem::action("Switch Appearance", ToggleTheme),
-            ],
-            disabled: false,
-        },
-    ]);
+    let build_menus = || {
+        vec![
+            Menu {
+                name: "Ordia".into(),
+                items: vec![MenuItem::action("Quit Ordia", Quit)],
+                disabled: false,
+            },
+            Menu {
+                name: "File".into(),
+                items: vec![
+                    MenuItem::action("New Workbook", NewWorkbookTab),
+                    MenuItem::action("New Window", NewWindow),
+                    MenuItem::separator(),
+                    MenuItem::action("Close Tab", CloseActiveTab),
+                ],
+                disabled: false,
+            },
+            Menu {
+                name: "Edit".into(),
+                items: vec![
+                    MenuItem::action("Undo", UndoEdit),
+                    MenuItem::action("Redo", RedoEdit),
+                ],
+                disabled: false,
+            },
+            Menu {
+                name: "View".into(),
+                items: vec![
+                    MenuItem::action("Home", ShowHome),
+                    MenuItem::action("Toggle Property Inspector", ToggleInspector),
+                    MenuItem::action("Toggle Navigation Sidebar", ToggleSidebar),
+                    MenuItem::separator(),
+                    MenuItem::action("Switch Appearance", ToggleTheme),
+                ],
+                disabled: false,
+            },
+        ]
+    };
+
+    let owned_menus: Vec<OwnedMenu> = build_menus().into_iter().map(Menu::owned).collect();
+    GlobalState::init(cx);
+    GlobalState::global_mut(cx).set_app_menus(owned_menus);
+    cx.set_menus(build_menus());
 }
 
 /// Opens the interactive Ordia Design System Gallery window (`--gallery`).
@@ -148,9 +155,6 @@ pub fn open_design_gallery(
 }
 
 /// Builds default window options using GPUI Kit's custom title bar chrome.
-///
-/// Uses explicit initial window bounds (`1200x780`) and minimum window dimensions (`720x480`),
-/// which represent physical OS window constraints rather than internal layout spacing.
 pub fn default_window_options(cx: &App) -> WindowOptions {
     let mut options = TitleBar::window_options();
     let bounds = Bounds::centered(None, size(px(1200.), px(780.)), cx);
@@ -159,25 +163,85 @@ pub fn default_window_options(cx: &App) -> WindowOptions {
     options
 }
 
-/// Main window view for the Ordia desktop shell.
-///
-/// Owns sidebar collapse state, navigation section, open workbook tabs, their embedded
-/// [`SheetWorkspaceView`] entities, and keyboard focus.
+/// Main window view for the Ordia desktop shell (`PLAN.md` §5.1).
 pub struct MainWindow {
     focus_handle: FocusHandle,
-    sidebar_collapsed: bool,
-    active_section: SidebarSection,
-    tabs: Vec<WorkbookTab>,
-    sheet_views: Vec<Entity<SheetWorkspaceView>>,
-    active_tab_ix: usize,
+    #[cfg(not(target_os = "macos"))]
+    app_menu_bar: Entity<AppMenuBar>,
+    pub(crate) sidebar_collapsed: bool,
+    pub(crate) inspector_open: bool,
+    pub(crate) show_home: bool,
+    pub(crate) active_section: SidebarSection,
+    pub(crate) tabs: Vec<WorkbookTab>,
+    pub(crate) sheet_views: Vec<Entity<SheetWorkspaceView>>,
+    pub(crate) active_tab_ix: usize,
     next_tab_id: u64,
+    recent_files: Vec<RecentFileEntry>,
+    pub(crate) toolbar_font_select: Entity<ToolbarSelectState>,
+    pub(crate) toolbar_size_select: Entity<ToolbarSelectState>,
+    pub(crate) toolbar_fill_picker: Entity<ColorPickerState>,
+    pub(crate) toolbar_text_picker: Entity<ColorPickerState>,
+    pub(crate) toolbar_align_ix: usize,
 }
 
 impl MainWindow {
+    fn build_shell_controls(
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> (
+        Entity<ToolbarSelectState>,
+        Entity<ToolbarSelectState>,
+        Entity<ColorPickerState>,
+        Entity<ColorPickerState>,
+    ) {
+        let light = OrdiaTokens::light();
+        let font_sel = new_toolbar_select_state(
+            ["Carlito", "PingFang SC", "Inter", "JetBrains Mono"],
+            Some(0),
+            window,
+            cx,
+        );
+        let size_sel = new_toolbar_select_state(
+            ["9", "10", "11", "12", "14", "18", "24"],
+            Some(2),
+            window,
+            cx,
+        );
+        let fill_picker =
+            new_toolbar_color_picker_state(Some(light.colors.accent_subtle), window, cx);
+        let text_picker = new_toolbar_color_picker_state(Some(light.colors.primary), window, cx);
+        (font_sel, size_sel, fill_picker, text_picker)
+    }
+
+    fn default_recent_entries() -> Vec<RecentFileEntry> {
+        vec![
+            RecentFileEntry::new(
+                "m0_budget_sample.xlsx",
+                PathBuf::from("corpus/public/m0_budget_sample.xlsx"),
+                "Sample workbook",
+            ),
+            RecentFileEntry::new(
+                "m0_pivot_table.xlsx",
+                PathBuf::from("corpus/public/m0_pivot_table.xlsx"),
+                "PivotTable preservation sample",
+            ),
+            RecentFileEntry::new(
+                "m0_complex_chart.xlsx",
+                PathBuf::from("corpus/public/m0_complex_chart.xlsx"),
+                "Chart sample",
+            ),
+        ]
+    }
+
     /// Constructs a new main window view with starter workbook tabs.
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         ordia_ui::apply_ordia_theme(cx.theme().mode, Some(window), cx);
         let focus_handle = cx.focus_handle().tab_stop(true);
+        let (toolbar_font_select, toolbar_size_select, toolbar_fill_picker, toolbar_text_picker) =
+            Self::build_shell_controls(window, cx);
+        #[cfg(not(target_os = "macos"))]
+        let app_menu_bar = AppMenuBar::new(cx);
+
         let tabs = vec![
             WorkbookTab::new(
                 1,
@@ -217,19 +281,29 @@ impl MainWindow {
             }),
             cx.new(|cx| {
                 let mut v = SheetWorkspaceView::new(inv_doc, window, cx);
-                v.set_clipboard_bridge(cb.clone());
+                v.set_clipboard_bridge(cb);
                 v
             }),
         ];
 
         Self {
             focus_handle,
+            #[cfg(not(target_os = "macos"))]
+            app_menu_bar,
             sidebar_collapsed: false,
+            inspector_open: false,
+            show_home: false,
             active_section: SidebarSection::Recent,
             tabs,
             sheet_views,
             active_tab_ix: 0,
             next_tab_id: 4,
+            recent_files: Self::default_recent_entries(),
+            toolbar_font_select,
+            toolbar_size_select,
+            toolbar_fill_picker,
+            toolbar_text_picker,
+            toolbar_align_ix: 0,
         }
     }
 
@@ -241,6 +315,11 @@ impl MainWindow {
     ) -> Self {
         ordia_ui::apply_ordia_theme(cx.theme().mode, Some(window), cx);
         let focus_handle = cx.focus_handle().tab_stop(true);
+        let (toolbar_font_select, toolbar_size_select, toolbar_fill_picker, toolbar_text_picker) =
+            Self::build_shell_controls(window, cx);
+        #[cfg(not(target_os = "macos"))]
+        let app_menu_bar = AppMenuBar::new(cx);
+
         let title = doc.title().to_string();
         let sheet_count = doc.sheet_count();
         let summary = format!("{sheet_count} sheet(s) · Local workbook");
@@ -254,12 +333,22 @@ impl MainWindow {
 
         Self {
             focus_handle,
+            #[cfg(not(target_os = "macos"))]
+            app_menu_bar,
             sidebar_collapsed: true,
+            inspector_open: false,
+            show_home: false,
             active_section: SidebarSection::Recent,
             tabs,
             sheet_views,
             active_tab_ix: 0,
             next_tab_id: 2,
+            recent_files: Self::default_recent_entries(),
+            toolbar_font_select,
+            toolbar_size_select,
+            toolbar_fill_picker,
+            toolbar_text_picker,
+            toolbar_align_ix: 0,
         }
     }
 
@@ -289,12 +378,25 @@ impl MainWindow {
 
     /// Returns the embedded [`SheetWorkspaceView`] for the currently active tab, if any.
     pub fn active_sheet_view(&self) -> Option<&Entity<SheetWorkspaceView>> {
+        if self.show_home {
+            return None;
+        }
         self.sheet_views.get(self.active_tab_ix)
     }
 
     /// Returns whether the navigation sidebar is collapsed.
     pub fn is_sidebar_collapsed(&self) -> bool {
         self.sidebar_collapsed
+    }
+
+    /// Returns whether the right contextual property inspector panel is expanded.
+    pub fn is_inspector_open(&self) -> bool {
+        self.inspector_open
+    }
+
+    /// Returns whether the Home screen is currently active (either explicitly or when all tabs are closed).
+    pub fn is_showing_home(&self) -> bool {
+        self.show_home || self.tabs.is_empty()
     }
 
     /// Returns the currently active sidebar section.
@@ -314,9 +416,19 @@ impl MainWindow {
 
     /// Returns the currently selected workbook tab, if any.
     pub fn active_tab(&self) -> Option<&WorkbookTab> {
+        if self.is_showing_home() {
+            return None;
+        }
         self.tabs.get(self.active_tab_ix)
     }
 
+    /// Returns the recent files list displayed on the Home screen.
+    pub fn recent_files(&self) -> &[RecentFileEntry] {
+        &self.recent_files
+    }
+}
+
+impl MainWindow {
     /// Toggles between light and dark theme modes across the application.
     pub fn toggle_theme(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let next_mode = if cx.theme().mode.is_dark() {
@@ -334,197 +446,215 @@ impl MainWindow {
         cx.notify();
     }
 
+    /// Toggles the right contextual property inspector panel.
+    pub fn toggle_inspector(&mut self, cx: &mut Context<Self>) {
+        self.inspector_open = !self.inspector_open;
+        cx.notify();
+    }
+
+    /// Navigates to the Home screen (`Recent` & `Templates`).
+    pub fn show_home_screen(&mut self, cx: &mut Context<Self>) {
+        self.show_home = true;
+        cx.notify();
+    }
+
     /// Appends a new blank workbook tab and makes it active.
     pub fn add_workbook_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let id = self.next_tab_id;
         self.next_tab_id += 1;
         let title = format!("Book{id}.xlsx");
         let doc = SheetDocument::new_empty(&title).expect("initialize empty workbook tab");
-        self.tabs
-            .push(WorkbookTab::new(id, title, "1 sheet · Empty workbook"));
+        self.push_document_tab(
+            WorkbookTab::new(id, title, "1 sheet · Empty workbook"),
+            doc,
+            window,
+            cx,
+        );
+    }
+
+    /// Opens a built-in starter template in a new tab.
+    pub fn open_demo_template(
+        &mut self,
+        title: &str,
+        summary: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let id = self.next_tab_id;
+        self.next_tab_id += 1;
+        let doc = SheetDocument::new_demo(title)
+            .or_else(|_| SheetDocument::new_empty(title))
+            .expect("initialize template workbook");
+        self.push_document_tab(
+            WorkbookTab::new(id, title.to_string(), summary.to_string()),
+            doc,
+            window,
+            cx,
+        );
+    }
+
+    /// Opens an `.xlsx` file from `path` if readable on disk, falling back to a demo workbook.
+    pub fn open_recent_or_demo_entry(
+        &mut self,
+        title: &str,
+        path: &Path,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(existing_ix) = self
+            .tabs
+            .iter()
+            .position(|t| t.path().is_some_and(|p| p == path))
+        {
+            self.select_tab(existing_ix, cx);
+            return;
+        }
+        let doc = SheetDocument::open_xlsx(path)
+            .or_else(|_| SheetDocument::new_demo(title))
+            .or_else(|_| SheetDocument::new_empty(title))
+            .expect("open recent or demo workbook");
+        let id = self.next_tab_id;
+        self.next_tab_id += 1;
+        let sheet_count = doc.sheet_count();
+        let tab = WorkbookTab::new(
+            id,
+            title.to_string(),
+            format!("{sheet_count} sheet(s) · Local workbook"),
+        )
+        .with_path(path.to_path_buf());
+        self.push_document_tab(tab, doc, window, cx);
+    }
+
+    /// Opens one or more dropped external files (`.xlsx`, `.xlsm`, `.csv`, `.tsv`) as workbook tabs.
+    pub fn open_dropped_paths(
+        &mut self,
+        paths: &[PathBuf],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        for path in paths {
+            let file_name = path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("Dropped.xlsx")
+                .to_string();
+            if let Ok(doc) = SheetDocument::open_xlsx(path) {
+                let id = self.next_tab_id;
+                self.next_tab_id += 1;
+                let sheet_count = doc.sheet_count();
+                let tab = WorkbookTab::new(
+                    id,
+                    file_name.clone(),
+                    format!("{sheet_count} sheet(s) · Local workbook"),
+                )
+                .with_path(path.clone());
+                self.recent_files.retain(|r| r.path() != path);
+                self.recent_files
+                    .insert(0, RecentFileEntry::new(file_name, path.clone(), "Just now"));
+                self.push_document_tab(tab, doc, window, cx);
+            }
+        }
+    }
+
+    fn push_document_tab(
+        &mut self,
+        tab: WorkbookTab,
+        doc: SheetDocument,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let cb = platform::system_clipboard_bridge();
+        self.tabs.push(tab);
         self.sheet_views.push(cx.new(|cx| {
             let mut v = SheetWorkspaceView::new(doc, window, cx);
             v.set_clipboard_bridge(cb);
             v
         }));
         self.active_tab_ix = self.tabs.len().saturating_sub(1);
+        self.show_home = false;
         cx.notify();
     }
 
-    /// Selects a workbook tab by index if within bounds.
+    /// Selects a workbook tab by index if within bounds and exits the Home view.
     pub fn select_tab(&mut self, ix: usize, cx: &mut Context<Self>) {
-        if ix < self.tabs.len() && self.active_tab_ix != ix {
+        if ix < self.tabs.len() {
             self.active_tab_ix = ix;
+            self.show_home = false;
             cx.notify();
         }
     }
 
-    fn render_title_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let is_dark = cx.theme().mode.is_dark();
-        let theme_icon = if is_dark {
-            IconName::Sun
-        } else {
-            IconName::Moon
-        };
-        let theme_label = if is_dark { "Light" } else { "Dark" };
+    /// Closes the workbook tab at zero-based index `ix`. When the last tab closes, shows Home.
+    pub fn close_tab(&mut self, ix: usize, _window: &mut Window, cx: &mut Context<Self>) {
+        if ix >= self.tabs.len() {
+            return;
+        }
+        let active_id = self.tabs.get(self.active_tab_ix).map(WorkbookTab::id);
+        self.tabs.remove(ix);
+        self.sheet_views.remove(ix);
 
-        let tab_items: Vec<Tab> = self
-            .tabs
-            .iter()
-            .map(|tab| Tab::new().label(tab.title().clone()))
-            .collect();
-
-        TitleBar::new().child(
-            h_flex()
-                .w_full()
-                .pr_2()
-                .gap_2()
-                .justify_between()
-                .child(
-                    h_flex()
-                        .gap_2()
-                        .min_w_0()
-                        .flex_1()
-                        .child(
-                            SidebarToggleButton::new()
-                                .collapsed(self.sidebar_collapsed)
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.toggle_sidebar(cx);
-                                })),
-                        )
-                        .child(
-                            div()
-                                .text_sm()
-                                .font_semibold()
-                                .text_color(cx.theme().foreground)
-                                .child(app_name()),
-                        )
-                        .child(
-                            div().flex_1().min_w_0().child(
-                                TabBar::new("workbook-tabs")
-                                    .folder()
-                                    .small()
-                                    .menu(true)
-                                    .selected_index(self.active_tab_ix)
-                                    .children(tab_items)
-                                    .on_click(cx.listener(|this, ix, _, cx| {
-                                        this.select_tab(*ix, cx);
-                                    }))
-                                    .suffix(
-                                        Button::new("new-workbook-tab")
-                                            .ghost()
-                                            .xsmall()
-                                            .icon(IconName::Plus)
-                                            .tooltip("New workbook")
-                                            .on_click(cx.listener(|this, _, window, cx| {
-                                                this.add_workbook_tab(window, cx);
-                                            })),
-                                    ),
-                            ),
-                        ),
-                )
-                .child(
-                    h_flex().gap_1().child(
-                        Button::new("toggle-theme")
-                            .ghost()
-                            .small()
-                            .icon(theme_icon)
-                            .label(theme_label)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.toggle_theme(window, cx);
-                            })),
-                    ),
-                ),
-        )
+        if self.tabs.is_empty() {
+            self.active_tab_ix = 0;
+            self.show_home = true;
+        } else if let Some(prev_active) = active_id {
+            if let Some(new_ix) = self.tabs.iter().position(|t| t.id() == prev_active) {
+                self.active_tab_ix = new_ix;
+            } else {
+                self.active_tab_ix = ix.min(self.tabs.len() - 1);
+            }
+        }
+        cx.notify();
     }
 
-    fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let collapsed = self.sidebar_collapsed;
-        let active = self.active_section;
+    /// Closes a workbook tab by its stable [`WorkbookTab::id`].
+    pub fn close_tab_by_id(&mut self, tab_id: u64, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(ix) = self.tabs.iter().position(|t| t.id() == tab_id) {
+            self.close_tab(ix, window, cx);
+        }
+    }
 
-        Sidebar::new("navigation-sidebar")
-            .collapsible(SidebarCollapsible::Icon)
-            .collapsed(collapsed)
-            .header(
-                SidebarHeader::new()
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .size_7()
-                            .flex_shrink_0()
-                            .rounded(cx.theme().radius)
-                            .bg(cx.theme().sidebar_primary)
-                            .text_color(cx.theme().sidebar_primary_foreground)
-                            .child(Icon::new(IconName::LayoutDashboard).small()),
-                    )
-                    .when(!collapsed, |header| {
-                        header.child(
-                            v_flex()
-                                .flex_1()
-                                .min_w_0()
-                                .overflow_hidden()
-                                .child(div().text_sm().font_semibold().child("Ordia Sheets"))
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child("Workspace"),
-                                ),
-                        )
-                    }),
-            )
-            .child(
-                SidebarGroup::new("Navigation").child(
-                    SidebarMenu::new().children([
-                        SidebarMenuItem::new("Recent")
-                            .icon(IconName::FileText)
-                            .active(active == SidebarSection::Recent)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.active_section = SidebarSection::Recent;
-                                cx.notify();
-                            })),
-                        SidebarMenuItem::new("Templates")
-                            .icon(IconName::Folder)
-                            .active(active == SidebarSection::Templates)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.active_section = SidebarSection::Templates;
-                                cx.notify();
-                            })),
-                        SidebarMenuItem::new("Settings")
-                            .icon(IconName::Settings)
-                            .active(active == SidebarSection::Settings)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.active_section = SidebarSection::Settings;
-                                cx.notify();
-                            })),
-                    ]),
-                ),
-            )
-            .footer(
-                SidebarFooter::new().child(
-                    h_flex()
-                        .gap_2()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(Icon::new(IconName::HardDrive).small())
-                        .when(!collapsed, |row| row.child("Local-first · Offline")),
-                ),
-            )
+    /// Closes the currently active workbook tab (or closes the window if already on an empty Home screen).
+    pub fn close_active_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.is_showing_home() && !self.tabs.is_empty() {
+            self.close_tab(self.active_tab_ix, window, cx);
+        }
+    }
+
+    /// Reorders a workbook tab from `from_ix` to `to_ix`, keeping the active tab anchored by ID.
+    pub fn move_tab(&mut self, from_ix: usize, to_ix: usize, cx: &mut Context<Self>) {
+        if from_ix >= self.tabs.len() || to_ix >= self.tabs.len() || from_ix == to_ix {
+            return;
+        }
+        let active_id = self.tabs.get(self.active_tab_ix).map(WorkbookTab::id);
+        let tab = self.tabs.remove(from_ix);
+        let view = self.sheet_views.remove(from_ix);
+        self.tabs.insert(to_ix, tab);
+        self.sheet_views.insert(to_ix, view);
+        if let Some(aid) = active_id
+            && let Some(new_ix) = self.tabs.iter().position(|t| t.id() == aid)
+        {
+            self.active_tab_ix = new_ix;
+        }
+        cx.notify();
     }
 
     fn render_workspace_content(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let showing_home = self.is_showing_home();
         let active_sheet = self.active_sheet_view().cloned();
 
-        v_flex()
+        h_flex()
             .h_full()
             .flex_1()
             .min_w_0()
             .min_h_0()
             .bg(cx.theme().background)
-            .when_some(active_sheet, |el, sheet_view| el.child(sheet_view))
+            .when(showing_home, |el| el.child(self.render_home_screen(cx)))
+            .when(!showing_home, |el| {
+                el.when_some(active_sheet, |row, sheet_view| row.child(sheet_view))
+                    .when(self.inspector_open, |row| {
+                        row.child(self.render_inspector_slot(cx))
+                    })
+            })
     }
 }
 
@@ -536,23 +666,52 @@ impl Focusable for MainWindow {
 
 impl Render for MainWindow {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        v_flex()
+        let showing_home = self.is_showing_home();
+        #[cfg(not(target_os = "macos"))]
+        let win_menu = self.app_menu_bar.clone();
+
+        let root = v_flex()
             .id("ordia-main-window")
             .key_context("OrdiaMainWindow")
             .track_focus(&self.focus_handle)
+            .on_drop(cx.listener(|this, paths: &ExternalPaths, window, cx| {
+                this.open_dropped_paths(paths.paths(), window, cx);
+            }))
             .on_action(cx.listener(|this, _: &ToggleTheme, window, cx| {
                 this.toggle_theme(window, cx);
             }))
             .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| {
                 this.toggle_sidebar(cx);
             }))
+            .on_action(cx.listener(|this, _: &ToggleInspector, _, cx| {
+                this.toggle_inspector(cx);
+            }))
             .on_action(cx.listener(|this, _: &NewWorkbookTab, window, cx| {
                 this.add_workbook_tab(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &CloseActiveTab, window, cx| {
+                this.close_active_tab(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &ShowHome, _, cx| {
+                this.show_home_screen(cx);
             }))
             .size_full()
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
-            .child(self.render_title_bar(cx))
+            .child(self.render_title_bar(cx));
+
+        #[cfg(not(target_os = "macos"))]
+        let root = root.child(
+            h_flex()
+                .w_full()
+                .px_2()
+                .border_b_1()
+                .border_color(cx.theme().border)
+                .bg(cx.theme().popover)
+                .child(win_menu),
+        );
+
+        root.when(!showing_home, |el| el.child(self.render_toolbar_slot(cx)))
             .child(
                 h_flex()
                     .items_stretch()
@@ -562,5 +721,6 @@ impl Render for MainWindow {
                     .child(self.render_sidebar(cx))
                     .child(self.render_workspace_content(cx)),
             )
+            .child(self.render_status_bar(cx))
     }
 }

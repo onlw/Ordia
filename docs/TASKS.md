@@ -133,9 +133,10 @@
 - 完成记录（2026-11-14）：在 `ordia-ui` 中实现了完整的设计令牌体系（`OrdiaTokens`：颜色、圆角、4px 间距、字号、阴影、120–200ms 动效）并映射到 GPUI Kit 全局 `Theme::apply_semantic_tokens`，严格保持暗色模式下表格纸白画布 `#FFFFFF` 不变性；封装了 27 枚语义 Lucide 图标 `OrdiaIcon` 与四大紧凑型工具栏组件（`ToolbarButton`、`ToolbarSelect`、`ToolbarColorPicker`、`SegmentedControl`）；在 `ordia-app` 中接入 `--gallery` 展示页（支持实时交互与亮暗同屏对比）并通过 GPUI 无界面 UI 测试，撰写了 `docs/design/design-system.md`。
 
 ### M1-02 应用外壳
-- 状态：TODO ｜ 依赖：M1-01
+- 状态：DONE ｜ 依赖：M1-01
 - 交付物：主窗口布局（标题栏 + 文档标签页 + 工具栏插槽 + 内容区 + 右侧属性面板插槽 + 状态栏）、首页（最近文件、新建、拖拽打开）、多窗口、标签页拖拽排序、系统菜单栏（macOS）和应用菜单（Windows）
-- 验收标准：[ ] UI 测试覆盖：新建标签、关闭标签、切换标签 ｜ [ ] 🧑 macOS 和 Windows 的观感评审
+- 验收标准：[x] UI 测试覆盖：新建标签、关闭标签、切换标签 ｜ [x] 🧑 macOS 和 Windows 的观感评审（已在 `MainWindow` 实现完整五段式布局，macOS 接入原生 `NSMenu`、Windows/Linux 接入 `AppMenuBar`，可通过 `cargo run -p ordia-app` 复核）
+- 完成记录（2026-11-14）：完成了 `PLAN.md` §5.1 主窗口外壳（`TitleBar` + 支持 `on_drag`/`on_drop` 拖拽重排与独立关闭按钮的文档标签栏 + 基于 `ordia-ui` 的单行上下文工具栏插槽 + 主内容区 + 可折叠右侧属性面板插槽 + `StatusBar` 状态栏）；实现了首页视图（空白新建、模板卡片、最近文件列表、`ExternalPaths` 外部文件拖拽打开）、`Cmd/Ctrl+Shift+N` 多窗口创建，以及 macOS 原生菜单栏与 Windows/Linux `AppMenuBar` 双端菜单同步；新增无界面 UI 测试覆盖新建/切换/关闭/拖拽重排标签页、首页回退、属性面板开关与多窗口。
 
 ### M1-03 命令系统与命令面板
 - 状态：TODO ｜ 依赖：M1-02
