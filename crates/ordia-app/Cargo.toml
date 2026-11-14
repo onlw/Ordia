@@ -32,6 +32,7 @@ ordia-sheet-model.workspace = true
 ordia-sheet-view.workspace = true
 ordia-xlsx.workspace = true
 ordia-csv.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 gpui-kit = { workspace = true, features = ["test-support"] }

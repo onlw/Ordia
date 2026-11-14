@@ -172,6 +172,7 @@ recovered_summary = "Recovered ({ops} operations)"
 
 [cmd.help]
 about = "About Ordia"
+open_log_dir = "Open Log Directory"
 
 [about]
 title = "About Ordia"
@@ -181,3 +182,9 @@ license_label = "Open Source License: Apache-2.0"
 repo_label = "Repository: https://github.com/onlw/Ordia"
 third_party_heading = "Third-Party Open Source Notices ({count} crates)"
 close_btn = "Back to Workbook"
+
+[crash_report]
+banner_title = "Previous Crash Detected"
+banner_message = "Ordia encountered an unexpected error ({location}). No data was uploaded. Would you like to open a pre-filled GitHub Issue?"
+report_issue_btn = "Open GitHub Issue"
+dismiss_btn = "Dismiss"

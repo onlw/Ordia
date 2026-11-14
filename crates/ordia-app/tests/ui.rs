@@ -1,14 +1,24 @@
 //! Headless UI integration tests for the Ordia application shell (`M1-02`).
 
 use std::path::PathBuf;
+use std::sync::{Mutex, MutexGuard};
 
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{AppContext as _, Bounds, TestAppContext, WindowBounds, WindowOptions, px, size};
 use ordia_app::MainWindow;
 
+static UI_GLOBAL_LOCK: Mutex<()> = Mutex::new(());
+
+fn lock_ui_globals() -> MutexGuard<'static, ()> {
+    UI_GLOBAL_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 #[gpui_kit::test]
 fn shell_new_switch_close_reorder_tabs_home_inspector_and_multiwindow(cx: &mut TestAppContext) {
+    let _serial = lock_ui_globals();
     cx.update(|cx| {
         gpui_kit::init(cx);
         ordia_app::register_bindings_and_menus(cx);
@@ -123,6 +133,7 @@ fn shell_new_switch_close_reorder_tabs_home_inspector_and_multiwindow(cx: &mut T
 
 #[gpui_kit::test]
 fn command_palette_pinyin_search_and_registry_toolbar_execution(cx: &mut TestAppContext) {
+    let _serial = lock_ui_globals();
     cx.update(|cx| {
         gpui_kit::init(cx);
         ordia_app::register_bindings_and_menus(cx);
@@ -175,6 +186,7 @@ fn command_palette_pinyin_search_and_registry_toolbar_execution(cx: &mut TestApp
 
 #[gpui_kit::test]
 fn settings_and_window_state_persist_across_restart(cx: &mut TestAppContext) {
+    let _serial = lock_ui_globals();
     use ordia_core::{
         AppearanceMode, EnterMoveDirection, LanguageSetting, PersistedWindowBounds, SettingsStore,
     };
@@ -272,6 +284,7 @@ fn settings_and_window_state_persist_across_restart(cx: &mut TestAppContext) {
 
 #[gpui_kit::test]
 fn corrupt_files_show_friendly_error_and_async_open_never_blocks_ui(cx: &mut TestAppContext) {
+    let _serial = lock_ui_globals();
     cx.update(|cx| {
         gpui_kit::init(cx);
         ordia_app::register_bindings_and_menus(cx);
@@ -371,6 +384,7 @@ fn corrupt_files_show_friendly_error_and_async_open_never_blocks_ui(cx: &mut Tes
 
 #[gpui_kit::test]
 fn startup_detects_unclean_journal_and_recovers_last_flushed_transactions(cx: &mut TestAppContext) {
+    let _serial = lock_ui_globals();
     use ordia_core::{JournalFlushPolicy, JournalSessionMeta, JournalWriter, SettingsStore};
     use ordia_sheet_model::{CellCoord, SheetOp, Transaction};
     use std::io::Write as _;
@@ -389,8 +403,8 @@ fn startup_detects_unclean_journal_and_recovers_last_flushed_transactions(cx: &m
     {
         let meta = JournalSessionMeta::new("crash-sess-1", "Crash_Budget.xlsx", None);
         let policy = JournalFlushPolicy::new(4, Duration::from_secs(3600));
-        let mut writer = JournalWriter::<Transaction>::open(store.dir(), &meta, policy)
-            .expect("open journal");
+        let mut writer =
+            JournalWriter::<Transaction>::open(store.dir(), &meta, policy).expect("open journal");
         for row in 0..5u32 {
             let tx = Transaction::new(
                 "Edit cell",
@@ -453,9 +467,9 @@ fn startup_detects_unclean_journal_and_recovers_last_flushed_transactions(cx: &m
     .expect("verify startup crash recovery UI flow");
 }
 
-
 #[gpui_kit::test]
 fn about_screen_displays_version_license_and_third_party_notices(cx: &mut TestAppContext) {
+    let _serial = lock_ui_globals();
     cx.update(|cx| {
         gpui_kit::init(cx);
         ordia_app::register_bindings_and_menus(cx);
@@ -511,4 +525,50 @@ fn about_screen_displays_version_license_and_third_party_notices(cx: &mut TestAp
         assert!(!view.read(cx).is_showing_about());
     })
     .expect("verify About Ordia screen flow");
+}
+
+#[gpui_kit::test]
+fn crash_report_banner_is_opt_in_and_open_log_dir_command_works(cx: &mut TestAppContext) {
+    let _serial = lock_ui_globals();
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        ordia_app::register_bindings_and_menus(cx);
+    });
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    ordia_core::install_panic_crash_hook(dir.path());
+    let canary_cell = "SECRET_CLIENT_REVENUE_999888777";
+    let _ = std::thread::spawn(move || {
+        panic!("simulated crash touching {canary_cell}");
+    })
+    .join();
+
+    let store = ordia_core::SettingsStore::with_dir(dir.path());
+    let (handle, view) =
+        cx.update(|cx| MainWindow::open_with_store(store, cx).expect("open window with crash"));
+
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        let reports = view.read(cx).pending_crash_reports();
+        assert_eq!(reports.len(), 1);
+        let raw_url = reports[0].1.github_issue_url();
+        assert!(raw_url.starts_with("https://github.com/onlw/Ordia/issues/new?"));
+        assert!(!raw_url.contains(canary_cell));
+
+        // Verify Help -> Open Log Directory is registered and searchable by Pinyin ("rz").
+        let hits = view.read(cx).command_registry().search("rz");
+        assert!(hits.iter().any(|c| c.id() == "help.open_log_dir"));
+
+        let log_dir = view.update(cx, |this, cx| this.open_log_directory(false, cx));
+        assert!(log_dir.is_dir());
+        assert_eq!(view.read(cx).opened_log_dir_count(), 1);
+        window.render_frame(cx);
+
+        // Dismissing crash report banner deletes local crash metadata without network upload.
+        window.click("dismiss-crash-report-btn", cx);
+        window.render_frame(cx);
+        assert!(view.read(cx).pending_crash_reports().is_empty());
+        assert!(ordia_core::list_pending_crash_reports(dir.path()).is_empty());
+    })
+    .expect("verify crash report banner and log dir UI flow");
 }

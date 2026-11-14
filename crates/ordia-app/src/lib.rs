@@ -33,8 +33,9 @@ use gpui_kit::{
     SharedString, Styled as _, Window, WindowBounds, WindowOptions, point, px, size,
 };
 use ordia_core::{
-    AppSettings, AppStateSnapshot, AppearanceMode, EnterMoveDirection, JournalRecoveryManager,
-    LanguageSetting, PersistedRecentFile, PersistedWindowBounds, SettingsStore, UncleanSessionInfo,
+    AppSettings, AppStateSnapshot, AppearanceMode, CrashReport, EnterMoveDirection,
+    JournalRecoveryManager, LanguageSetting, PersistedRecentFile, PersistedWindowBounds,
+    SettingsStore, UncleanSessionInfo, list_pending_crash_reports,
 };
 use ordia_i18n::LanguagePreference;
 use ordia_sheet_model::SheetDocument;
@@ -60,6 +61,7 @@ pub mod app_actions {
             Quit,
             OpenSettings,
             OpenAbout,
+            OpenLogDirectory,
             ToggleTheme,
             ToggleSidebar,
             ToggleInspector,
@@ -73,8 +75,8 @@ pub mod app_actions {
     );
 }
 pub use app_actions::{
-    CloseActiveTab, NewWindow, NewWorkbookTab, OpenAbout, OpenCommandPalette, OpenSettings, Quit,
-    SaveWorkbook, ShowHome, ToggleInspector, ToggleSidebar, ToggleTheme,
+    CloseActiveTab, NewWindow, NewWorkbookTab, OpenAbout, OpenCommandPalette, OpenLogDirectory,
+    OpenSettings, Quit, SaveWorkbook, ShowHome, ToggleInspector, ToggleSidebar, ToggleTheme,
 };
 
 /// Returns the application display name.
@@ -175,8 +177,10 @@ pub struct MainWindow {
     pub(crate) active_tab_ix: usize,
     next_tab_id: u64,
     saved_count: u64,
+    pub(crate) opened_log_dir_count: u64,
     pub(crate) recent_files: Vec<RecentFileEntry>,
     pub(crate) recovery_sessions: Vec<UncleanSessionInfo>,
+    pub(crate) pending_crash_reports: Vec<(PathBuf, CrashReport)>,
     pub(crate) loading_banner: Option<LoadingBannerState>,
     pub(crate) open_error_banner: Option<OpenErrorBanner>,
     pub(crate) load_ticket: u64,
@@ -344,6 +348,7 @@ impl MainWindow {
         } else {
             Vec::new()
         };
+        let pending_crash_reports = list_pending_crash_reports(settings_store.dir());
 
         Self {
             focus_handle,
@@ -367,8 +372,10 @@ impl MainWindow {
             active_tab_ix: 0,
             next_tab_id: 4,
             saved_count: 0,
+            opened_log_dir_count: 0,
             recent_files,
             recovery_sessions,
+            pending_crash_reports,
             loading_banner: None,
             open_error_banner: None,
             load_ticket: 0,
@@ -432,8 +439,10 @@ impl MainWindow {
             active_tab_ix: 0,
             next_tab_id: 2,
             saved_count: 0,
+            opened_log_dir_count: 0,
             recent_files: Self::default_recent_entries(),
             recovery_sessions: Vec::new(),
+            pending_crash_reports: Vec::new(),
             loading_banner: None,
             open_error_banner: None,
             load_ticket: 0,
@@ -966,6 +975,9 @@ impl Render for MainWindow {
             .on_action(cx.listener(|this, _: &OpenAbout, _, cx| {
                 this.open_about_screen(cx);
             }))
+            .on_action(cx.listener(|this, _: &OpenLogDirectory, _, cx| {
+                this.open_log_directory(true, cx);
+            }))
             .on_action(cx.listener(|this, _: &OpenCommandPalette, window, cx| {
                 if this.palette_open {
                     this.close_command_palette(window, cx);
@@ -1014,7 +1026,8 @@ impl Render for MainWindow {
             el.child(self.render_toolbar_slot(cx))
         })
         .when(
-            !self.recovery_sessions.is_empty()
+            !self.pending_crash_reports.is_empty()
+                || !self.recovery_sessions.is_empty()
                 || self.loading_banner.is_some()
                 || self.open_error_banner.is_some(),
             |el| el.child(self.render_open_banners(cx)),

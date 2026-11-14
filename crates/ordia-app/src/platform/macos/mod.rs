@@ -32,3 +32,9 @@ impl SheetClipboardBridge for MacosClipboardBridge {
 pub const fn info_plist_xml() -> &'static str {
     super::macos_info_plist_template()
 }
+
+/// Opens `dir` inside macOS Finder (`open <dir>`).
+pub fn reveal_directory(dir: &std::path::Path) -> std::io::Result<()> {
+    let _ = std::process::Command::new("open").arg(dir).spawn()?;
+    Ok(())
+}

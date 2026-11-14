@@ -59,3 +59,9 @@ pub fn register_user_file_associations(exe_path: &Path) -> std::io::Result<()> {
     }
     Ok(())
 }
+
+/// Opens `dir` inside Windows File Explorer (`explorer.exe <dir>`).
+pub fn reveal_directory(dir: &Path) -> std::io::Result<()> {
+    let _ = Command::new("explorer").arg(dir).spawn()?;
+    Ok(())
+}

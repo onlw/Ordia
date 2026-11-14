@@ -175,9 +175,10 @@
 - 完成记录（2026-11-14）：撰写了 `docs/adr/0001-packaging-tool.md`，选定零外部锁定依赖的 `cargo xtask bundle` 原生打包方案（macOS `iconutil`+`hdiutil` `.dmg` 与 Windows WiX `Ordia.wxs`+`.msi`，并预留 `APPLE_SIGNING_IDENTITY` 签名钩子）；制作了矢量与应用图标集 `assets/icons/{ordia.svg, ordia-512.png, Ordia.icns, Ordia.ico}`；实现了从 `cargo metadata` 自动提取全量 904 个第三方依赖协议的 `assets/THIRD_PARTY_LICENSES.txt` 生成器；新增了 `.github/workflows/release.yml` 标签自动构建发布流水线；并在 `ordia-app` 中实现了集成在帮助菜单与拼音搜索（`"gy"`）中的“关于 Ordia”页面及 UI 测试。
 
 ### M1-09 日志、诊断与崩溃报告
-- 状态：TODO ｜ 依赖：M1-02
+- 状态：DONE ｜ 依赖：M1-02
 - 交付物：`tracing` 日志写入文件（滚动保存）、帮助菜单里的"打开日志目录"、发生 panic 时保存崩溃信息并在下次启动时询问是否打开 GitHub Issue（默认不上传任何数据，T-005）
-- 验收标准：[ ] 测试：触发 panic 后生成崩溃文件，内容不包含文档数据
+- 验收标准：[x] 测试：触发 panic 后生成崩溃文件，内容不包含文档数据
+- 完成记录（2026-11-14）：在 `ordia-core::diagnostics` 中实现了基于 `tracing-appender` 的按日非阻塞滚动文件日志（`<data_dir>/logs/ordia.log.*`，自动裁剪旧日志并支持 `ORDIA_LOG` 过滤）以及严格遵守 `T-005` 零遥测原则的零隐私 panic 钩子 `install_panic_crash_hook`（主动丢弃 `PanicHookInfo::payload()`、抹除绝对路径与用户目录，仅将版本号、系统架构、源码相对行列号与脱敏符号栈原子写入 `<data_dir>/crashes/*.toml`）；在 `ordia-app` 中接入了帮助菜单/命令面板（拼音 `"rz"`）的“打开日志目录”命令及下次启动时的纯手动授权 GitHub Issue 提交横幅，并通过了金丝雀敏感单元格泄漏断言单元测试与无界面 UI 集成测试。
 
 ---
 

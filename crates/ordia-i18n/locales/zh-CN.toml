@@ -172,6 +172,7 @@ recovered_summary = "已从崩溃日志恢复（{ops} 条操作）"
 
 [cmd.help]
 about = "关于 Ordia"
+open_log_dir = "打开日志目录"
 
 [about]
 title = "关于 Ordia"
@@ -181,3 +182,9 @@ license_label = "开源协议：Apache-2.0"
 repo_label = "代码仓库：https://github.com/onlw/Ordia"
 third_party_heading = "第三方开源协议清单（共 {count} 个依赖组件）"
 close_btn = "返回工作簿"
+
+[crash_report]
+banner_title = "检测到上次运行发生崩溃"
+banner_message = "Ordia 上次遇到内部异常（{location}），未上传任何数据。是否前往 GitHub 提交反馈 Issue？"
+report_issue_btn = "打开 GitHub Issue"
+dismiss_btn = "忽略"

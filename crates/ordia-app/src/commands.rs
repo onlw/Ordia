@@ -14,7 +14,8 @@ use ordia_ui::OrdiaIcon;
 use crate::pinyin::fuzzy_or_pinyin_score;
 use crate::{
     CloseActiveTab, MainWindow, NewWindow, NewWorkbookTab, OpenAbout, OpenCommandPalette,
-    OpenSettings, Quit, SaveWorkbook, ShowHome, ToggleInspector, ToggleSidebar, ToggleTheme,
+    OpenLogDirectory, OpenSettings, Quit, SaveWorkbook, ShowHome, ToggleInspector, ToggleSidebar,
+    ToggleTheme,
 };
 
 type EnabledPredicate = Rc<dyn Fn(&MainWindow, &App) -> bool>;
@@ -432,6 +433,22 @@ impl CommandRegistry {
             is_enabled: always.clone(),
             make_action: Rc::new(|| Box::new(ToggleTheme)),
             execute: Rc::new(|win, window, cx| win.toggle_theme(window, cx)),
+        });
+
+        reg.register(CommandSpec {
+            id: "help.open_log_dir",
+            category: CommandCategory::Help,
+            i18n_key: "cmd.help.open_log_dir",
+            icon: Some(OrdiaIcon::Open),
+            shortcut_macos: None,
+            shortcut_other: None,
+            key_context: None,
+            in_toolbar: false,
+            is_enabled: always.clone(),
+            make_action: Rc::new(|| Box::new(OpenLogDirectory)),
+            execute: Rc::new(|win, _, cx| {
+                let _ = win.open_log_directory(true, cx);
+            }),
         });
 
         reg.register(CommandSpec {

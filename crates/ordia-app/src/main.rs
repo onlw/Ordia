@@ -41,6 +41,15 @@ fn file_url_to_path(url: &str) -> Option<PathBuf> {
 
 fn main() {
     let args = CliArgs::parse();
+    let app_data_dir = ordia_core::SettingsStore::default_app_data_dir();
+    let _log_guard = ordia_core::init_rolling_file_logger(&app_data_dir, 7);
+    ordia_core::install_panic_crash_hook(&app_data_dir);
+    tracing::info!(
+        version = env!("CARGO_PKG_VERSION"),
+        os = std::env::consts::OS,
+        arch = std::env::consts::ARCH,
+        "starting Ordia desktop client"
+    );
     let initial_open = args.open.clone().or_else(|| args.file.clone());
 
     if let Some(pdf_out) = args.export_pdf.as_ref() {

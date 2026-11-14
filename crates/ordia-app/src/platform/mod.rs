@@ -90,6 +90,23 @@ pub fn generate_windows_hkcu_reg_script(exe_path: &Path) -> String {
     out
 }
 
+/// Opens `dir` in the host operating system's native file manager (Finder / Explorer).
+pub fn reveal_directory_in_os(dir: &Path) -> std::io::Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        macos::reveal_directory(dir)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        windows::reveal_directory(dir)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = std::process::Command::new("xdg-open").arg(dir).spawn()?;
+        Ok(())
+    }
+}
+
 /// Constructs the native OS [`SheetClipboardBridge`] for the active host platform.
 pub fn system_clipboard_bridge() -> Arc<dyn SheetClipboardBridge> {
     #[cfg(target_os = "macos")]

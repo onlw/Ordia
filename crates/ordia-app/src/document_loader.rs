@@ -16,8 +16,8 @@ use gpui_kit::{
     Window, div, px,
 };
 use ordia_core::{
-    Document as _, DocumentError, JournalRecoveryManager, LoadProgress, LoadStage,
-    UncleanSessionInfo,
+    CrashReport, Document as _, DocumentError, JournalRecoveryManager, LoadProgress, LoadStage,
+    UncleanSessionInfo, acknowledge_crash_reports, log_dir_for,
 };
 use ordia_sheet_model::{SheetDocument, Transaction};
 
@@ -150,6 +150,55 @@ impl MainWindow {
             let _ = mgr.discard_session(&sess.meta.session_id);
         }
         cx.notify();
+    }
+
+    /// Returns unacknowledged zero-PII crash reports detected on startup (`M1-09`, `T-005`).
+    #[must_use]
+    pub fn pending_crash_reports(&self) -> &[(PathBuf, CrashReport)] {
+        &self.pending_crash_reports
+    }
+
+    /// Number of times [`Self::open_log_directory`] has been triggered in this session.
+    #[must_use]
+    pub const fn opened_log_dir_count(&self) -> u64 {
+        self.opened_log_dir_count
+    }
+
+    /// Ensures `<data_dir>/logs` exists and optionally reveals it in Finder / Explorer (`Help -> Open Log Directory`).
+    pub fn open_log_directory(&mut self, reveal_in_os: bool, cx: &mut Context<Self>) -> PathBuf {
+        let dir = log_dir_for(self.settings_store.dir());
+        let _ = std::fs::create_dir_all(&dir);
+        self.opened_log_dir_count += 1;
+        tracing::info!(log_dir = %dir.display(), "user requested log directory");
+        if reveal_in_os {
+            let _ = crate::platform::reveal_directory_in_os(&dir);
+        }
+        cx.notify();
+        dir
+    }
+
+    /// Opens a pre-filled GitHub Issue URL in the user's browser (strictly opt-in, `T-005`) and clears pending reports.
+    pub fn report_crash_on_github(&mut self, cx: &mut Context<Self>) -> Option<String> {
+        let url = self
+            .pending_crash_reports
+            .last()
+            .map(|(_, rep)| rep.github_issue_url());
+        if let Some(ref u) = url {
+            cx.open_url(u);
+        }
+        acknowledge_crash_reports(self.settings_store.dir());
+        self.pending_crash_reports.clear();
+        cx.notify();
+        url
+    }
+
+    /// Acknowledges and deletes pending crash reports without opening any external URL.
+    pub fn dismiss_crash_reports(&mut self, cx: &mut Context<Self>) {
+        acknowledge_crash_reports(self.settings_store.dir());
+        if !self.pending_crash_reports.is_empty() {
+            self.pending_crash_reports.clear();
+            cx.notify();
+        }
     }
 
     /// Opens `path` synchronously on the caller thread (suitable for small files), surfacing a friendly
@@ -323,6 +372,9 @@ impl MainWindow {
     }
 
     pub(crate) fn render_open_banners(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let crash_prompt = self.pending_crash_reports.last().map(|(_, rep)| {
+            ordia_i18n::t!("crash_report.banner_message", "location" => rep.location.as_str())
+        });
         let recovery = if self.recovery_sessions.is_empty() {
             None
         } else {
@@ -344,6 +396,59 @@ impl MainWindow {
 
         v_flex()
             .w_full()
+            .when_some(crash_prompt, |col, msg| {
+                col.child(
+                    h_flex()
+                        .id("crash-report-banner")
+                        .w_full()
+                        .justify_between()
+                        .px_4()
+                        .py_2()
+                        .gap_3()
+                        .border_b_1()
+                        .border_color(cx.theme().warning)
+                        .bg(cx.theme().popover)
+                        .text_xs()
+                        .child(
+                            h_flex()
+                                .flex_1()
+                                .min_w_0()
+                                .overflow_x_hidden()
+                                .gap_2()
+                                .child(
+                                    div()
+                                        .flex_shrink_0()
+                                        .font_semibold()
+                                        .text_color(cx.theme().warning)
+                                        .child(ordia_i18n::t!("crash_report.banner_title")),
+                                )
+                                .child(div().truncate().child(msg)),
+                        )
+                        .child(
+                            h_flex()
+                                .flex_shrink_0()
+                                .gap_2()
+                                .child(
+                                    Button::new("report-crash-github-btn")
+                                        .primary()
+                                        .small()
+                                        .label(ordia_i18n::t!("crash_report.report_issue_btn"))
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            let _ = this.report_crash_on_github(cx);
+                                        })),
+                                )
+                                .child(
+                                    Button::new("dismiss-crash-report-btn")
+                                        .outline()
+                                        .small()
+                                        .label(ordia_i18n::t!("crash_report.dismiss_btn"))
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.dismiss_crash_reports(cx);
+                                        })),
+                                ),
+                        ),
+                )
+            })
             .when_some(recovery, |col, msg| {
                 col.child(
                     h_flex()
@@ -359,17 +464,22 @@ impl MainWindow {
                         .text_xs()
                         .child(
                             h_flex()
+                                .flex_1()
+                                .min_w_0()
+                                .overflow_x_hidden()
                                 .gap_2()
                                 .child(
                                     div()
+                                        .flex_shrink_0()
                                         .font_semibold()
                                         .text_color(cx.theme().primary)
                                         .child(ordia_i18n::t!("recovery.banner_title")),
                                 )
-                                .child(msg),
+                                .child(div().truncate().child(msg)),
                         )
                         .child(
                             h_flex()
+                                .flex_shrink_0()
                                 .gap_2()
                                 .child(
                                     Button::new("recover-sessions-btn")
@@ -454,23 +564,29 @@ impl MainWindow {
                         .text_xs()
                         .child(
                             h_flex()
+                                .flex_1()
+                                .min_w_0()
+                                .overflow_x_hidden()
                                 .gap_2()
                                 .child(
                                     div()
+                                        .flex_shrink_0()
                                         .font_semibold()
                                         .text_color(cx.theme().danger)
                                         .child(ordia_i18n::t!("open_flow.error_title")),
                                 )
-                                .child(e.message),
+                                .child(div().truncate().child(e.message)),
                         )
                         .child(
-                            Button::new("dismiss-open-error")
-                                .outline()
-                                .small()
-                                .label(ordia_i18n::t!("open_flow.error_dismiss"))
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.dismiss_open_error(cx);
-                                })),
+                            div().flex_shrink_0().child(
+                                Button::new("dismiss-open-error")
+                                    .outline()
+                                    .small()
+                                    .label(ordia_i18n::t!("open_flow.error_dismiss"))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.dismiss_open_error(cx);
+                                    })),
+                            ),
                         ),
                 )
             })
