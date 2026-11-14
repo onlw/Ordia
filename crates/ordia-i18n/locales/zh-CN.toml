@@ -162,3 +162,10 @@ err_legacy_xls = "「{name}」是旧版 Excel 97-2003 (.xls) 二进制格式，�
 err_unsupported = "暂不支持「{name}」的文件格式（{detail}）。"
 err_io = "无法读取文件「{name}」：{detail}"
 err_parse = "解析表格「{name}」时出错：{detail}"
+
+[recovery]
+banner_title = "检测到异常退出的未保存文档"
+banner_message = "Ordia 上次未正常关闭，可从操作日志恢复 {count} 个工作簿会话（{names}）。"
+recover_action = "立即恢复"
+discard_action = "放弃恢复"
+recovered_summary = "已从崩溃日志恢复（{ops} 条操作）"

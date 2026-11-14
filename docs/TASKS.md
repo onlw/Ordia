@@ -163,9 +163,10 @@
 - 完成记录（2026-11-14）：在 `ordia-core` 中定义了跨产品统一的 `Document` trait、`DocumentKind`、`LoadProgress`/`LoadStage`、`DocumentError`、`atomic_write_bytes` 原子写盘校验工具，以及同时检查文件扩展名与文件头魔数（`PK\x03\x04` OOXML、`D0 CF 11 E0` 旧版 OLE2 `.xls`、UTF-8/UTF-16 BOM 与 NUL 字节检测）的 `detect_document_format`；在 `ordia-sheet-model` 中为 `SheetDocument` 实现了 `Document` trait（含 `catch_unwind` 异常隔离及 `.xlsx`/`.xlsm`/`.csv`/`.tsv` 读写）；在 `ordia-app` 中实现了 `open_file_async` 后台线程池加载、非阻塞进度横幅、双语可关闭友好错误横幅、命令行位置参数与 macOS `on_open_urls` 文件关联接收，并补齐了 `assets/macos/Info.plist`（UTI）与 `assets/windows/file-associations.reg`（`HKCU\Software\Classes` ProgID）及 UI/单元测试。
 
 ### M1-07 操作日志与崩溃恢复框架
-- 状态：TODO ｜ 依赖：M1-06
+- 状态：DONE ｜ 依赖：M1-06
 - 交付物：`ordia-core` 中的通用操作日志（追加写入、校验和、定期刷盘）、启动时检测异常退出并提示恢复、历史版本的存储框架
-- 验收标准：[ ] 测试：写入 N 条操作后模拟进程被杀，重新启动后能恢复到最后一条已刷盘的操作 ｜ [ ] 日志损坏时能安全地跳过尾部
+- 验收标准：[x] 测试：写入 N 条操作后模拟进程被杀，重新启动后能恢复到最后一条已刷盘的操作 ｜ [x] 日志损坏时能安全地跳过尾部
+- 完成记录（2026-11-14）：在 `ordia-core` 中实现了泛型追加式二进制操作日志 `JournalWriter<Op>`（`ORDJNL01` 魔数头、`postcard` 帧编码、逐帧 `crc32fast` 校验和、按操作条数/时间间隔双触发 `sync_data` 的 `JournalFlushPolicy` 及 `active.lock` 会话锁）、启动扫描与回放器 `JournalRecoveryManager`（自动识别异常退出会话并安全截断/跳过断电或半写损坏尾部帧）以及带 CRC32 校验与双维保留裁剪策略的历史版本存储 `VersionHistoryStore`；在 `ordia-app` 中接入了启动检测横幅与一键重放恢复工作簿标签页流程，并补齐了模拟进程被杀、尾部截断损坏恢复与无界面 UI 恢复集成测试。
 
 ### M1-08 打包与发布流水线
 - 状态：TODO ｜ 依赖：M1-02

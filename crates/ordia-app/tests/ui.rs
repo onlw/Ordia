@@ -368,3 +368,87 @@ fn corrupt_files_show_friendly_error_and_async_open_never_blocks_ui(cx: &mut Tes
     })
     .expect("verify async load completion");
 }
+
+#[gpui_kit::test]
+fn startup_detects_unclean_journal_and_recovers_last_flushed_transactions(cx: &mut TestAppContext) {
+    use ordia_core::{JournalFlushPolicy, JournalSessionMeta, JournalWriter, SettingsStore};
+    use ordia_sheet_model::{CellCoord, SheetOp, Transaction};
+    use std::io::Write as _;
+    use std::time::Duration;
+
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        ordia_app::register_bindings_and_menus(cx);
+    });
+
+    let temp_dir = tempfile::tempdir().expect("tempdir");
+    let store = SettingsStore::with_dir(temp_dir.path());
+
+    // Simulate a previous session where 5 transactions were appended (`flush_every_n_ops = 4`, so 1..=4 flushed,
+    // 5 stayed in memory), a torn write hit the tail of `ops.journal`, and the process died abruptly!
+    {
+        let meta = JournalSessionMeta::new("crash-sess-1", "Crash_Budget.xlsx", None);
+        let policy = JournalFlushPolicy::new(4, Duration::from_secs(3600));
+        let mut writer = JournalWriter::<Transaction>::open(store.dir(), &meta, policy)
+            .expect("open journal");
+        for row in 0..5u32 {
+            let tx = Transaction::new(
+                "Edit cell",
+                vec![SheetOp::SetCellInput {
+                    sheet: 0,
+                    coord: CellCoord::new(row, 0),
+                    old_input: String::new(),
+                    new_input: format!("Committed-{}", row + 1),
+                }],
+            );
+            writer.append(&tx).expect("append tx");
+        }
+        assert_eq!(writer.flushed_seq(), 4);
+        let jpath = writer.journal_path().to_path_buf();
+        drop(writer);
+
+        let mut torn = std::fs::OpenOptions::new()
+            .append(true)
+            .open(jpath)
+            .expect("open journal tail");
+        torn.write_all(b"\x99\x88\x77torn-tail")
+            .expect("append torn tail");
+    }
+
+    // Restart Ordia: MainWindow detects the unclean journal and shows the recovery prompt banner!
+    let (handle, view) = cx.update(|cx| {
+        MainWindow::open_with_store(store, cx).expect("open main window after simulated crash")
+    });
+
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).unclean_recovery_sessions().len(), 1);
+
+        // Click the "Recover" button in the crash-recovery banner!
+        window.click("recover-sessions-btn", cx);
+        window.render_frame(cx);
+
+        assert!(view.read(cx).unclean_recovery_sessions().is_empty());
+        assert_eq!(
+            view.read(cx).active_tab().map(|t| t.title().as_ref()),
+            Some("Crash_Budget.xlsx")
+        );
+        let sheet_entity = view
+            .read(cx)
+            .active_sheet_view()
+            .expect("recovered sheet view")
+            .clone();
+        let doc = sheet_entity.read(cx).document();
+        assert_eq!(
+            doc.cell_display_text(CellCoord::new(0, 0)).expect("A1"),
+            "Committed-1"
+        );
+        assert_eq!(
+            doc.cell_display_text(CellCoord::new(3, 0)).expect("A4"),
+            "Committed-4"
+        );
+        // Unflushed 5th operation was never synced before the simulated crash.
+        assert_eq!(doc.cell_display_text(CellCoord::new(4, 0)).expect("A5"), "");
+    })
+    .expect("verify startup crash recovery UI flow");
+}

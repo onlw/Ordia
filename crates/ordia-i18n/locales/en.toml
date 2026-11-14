@@ -162,3 +162,10 @@ err_legacy_xls = "\"{name}\" uses the legacy Excel 97-2003 (.xls) binary format.
 err_unsupported = "The format of \"{name}\" is not supported ({detail})."
 err_io = "Could not read \"{name}\": {detail}"
 err_parse = "Could not parse spreadsheet structure in \"{name}\": {detail}"
+
+[recovery]
+banner_title = "Unsaved Changes Detected"
+banner_message = "Ordia closed unexpectedly. {count} workbook session(s) ({names}) can be recovered from the operation journal."
+recover_action = "Recover"
+discard_action = "Discard"
+recovered_summary = "Recovered ({ops} operations)"

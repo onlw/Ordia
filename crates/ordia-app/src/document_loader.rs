@@ -5,14 +5,21 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use gpui_kit::base::StyledExt as _;
-use gpui_kit::component::{ActiveTheme as _, Sizable as _, button::Button, h_flex, v_flex};
+use gpui_kit::component::{
+    ActiveTheme as _, Sizable as _,
+    button::{Button, ButtonVariants as _},
+    h_flex, v_flex,
+};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     Context, InteractiveElement as _, IntoElement, ParentElement as _, SharedString, Styled as _,
     Window, div, px,
 };
-use ordia_core::{Document as _, DocumentError, LoadProgress, LoadStage};
-use ordia_sheet_model::SheetDocument;
+use ordia_core::{
+    Document as _, DocumentError, JournalRecoveryManager, LoadProgress, LoadStage,
+    UncleanSessionInfo,
+};
+use ordia_sheet_model::{SheetDocument, Transaction};
 
 use crate::{MainWindow, RecentFileEntry, WorkbookTab};
 
@@ -90,6 +97,59 @@ impl MainWindow {
         if self.open_error_banner.take().is_some() {
             cx.notify();
         }
+    }
+
+    /// Lists unclosed crash-recovery sessions detected on startup (`M1-07`).
+    #[must_use]
+    pub fn unclean_recovery_sessions(&self) -> &[UncleanSessionInfo] {
+        &self.recovery_sessions
+    }
+
+    /// Replays all detected crash-recovery journals into fresh/reopened workbook tabs and clears their locks.
+    pub fn recover_unclean_sessions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let mgr = JournalRecoveryManager::with_data_dir(self.settings_store.dir());
+        let sessions = std::mem::take(&mut self.recovery_sessions);
+        for sess in sessions {
+            if let Ok(rec) = mgr.recover_session::<Transaction>(&sess.meta.session_id) {
+                let mut doc = sess
+                    .meta
+                    .source_path
+                    .as_deref()
+                    .and_then(|p| SheetDocument::open_auto(p).ok())
+                    .or_else(|| SheetDocument::new_empty(&sess.meta.document_title).ok())
+                    .unwrap_or_else(|| {
+                        SheetDocument::new_empty("Recovered.xlsx")
+                            .expect("create fallback recovered workbook")
+                    });
+                let op_count = rec.operations.len().to_string();
+                for (_seq, tx) in rec.operations {
+                    let _ = doc.execute_transaction(tx);
+                }
+                let id = self.next_tab_id;
+                self.next_tab_id += 1;
+                let mut tab = WorkbookTab::new(
+                    id,
+                    sess.meta.document_title.clone(),
+                    ordia_i18n::t!("recovery.recovered_summary", "ops" => op_count),
+                );
+                if let Some(p) = sess.meta.source_path {
+                    tab = tab.with_path(p);
+                }
+                tab.set_dirty(true);
+                self.push_document_tab(tab, doc, window, cx);
+            }
+            let _ = mgr.discard_session(&sess.meta.session_id);
+        }
+        cx.notify();
+    }
+
+    /// Discards all pending crash-recovery sessions without replaying them.
+    pub fn discard_unclean_sessions(&mut self, cx: &mut Context<Self>) {
+        let mgr = JournalRecoveryManager::with_data_dir(self.settings_store.dir());
+        for sess in std::mem::take(&mut self.recovery_sessions) {
+            let _ = mgr.discard_session(&sess.meta.session_id);
+        }
+        cx.notify();
     }
 
     /// Opens `path` synchronously on the caller thread (suitable for small files), surfacing a friendly
@@ -263,11 +323,75 @@ impl MainWindow {
     }
 
     pub(crate) fn render_open_banners(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let recovery = if self.recovery_sessions.is_empty() {
+            None
+        } else {
+            let count = self.recovery_sessions.len().to_string();
+            let names = self
+                .recovery_sessions
+                .iter()
+                .map(|s| s.meta.document_title.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            Some(ordia_i18n::t!(
+                "recovery.banner_message",
+                "count" => count,
+                "names" => names
+            ))
+        };
         let loading = self.loading_banner.clone();
         let err = self.open_error_banner.clone();
 
         v_flex()
             .w_full()
+            .when_some(recovery, |col, msg| {
+                col.child(
+                    h_flex()
+                        .id("crash-recovery-banner")
+                        .w_full()
+                        .justify_between()
+                        .px_4()
+                        .py_2()
+                        .gap_3()
+                        .border_b_1()
+                        .border_color(cx.theme().primary)
+                        .bg(cx.theme().secondary)
+                        .text_xs()
+                        .child(
+                            h_flex()
+                                .gap_2()
+                                .child(
+                                    div()
+                                        .font_semibold()
+                                        .text_color(cx.theme().primary)
+                                        .child(ordia_i18n::t!("recovery.banner_title")),
+                                )
+                                .child(msg),
+                        )
+                        .child(
+                            h_flex()
+                                .gap_2()
+                                .child(
+                                    Button::new("recover-sessions-btn")
+                                        .primary()
+                                        .small()
+                                        .label(ordia_i18n::t!("recovery.recover_action"))
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            this.recover_unclean_sessions(window, cx);
+                                        })),
+                                )
+                                .child(
+                                    Button::new("discard-sessions-btn")
+                                        .outline()
+                                        .small()
+                                        .label(ordia_i18n::t!("recovery.discard_action"))
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.discard_unclean_sessions(cx);
+                                        })),
+                                ),
+                        ),
+                )
+            })
             .when_some(loading, |col, b| {
                 let pct_str = b.percent.to_string();
                 let label = match b.stage {

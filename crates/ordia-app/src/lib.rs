@@ -31,8 +31,8 @@ use gpui_kit::{
     SharedString, Styled as _, Window, WindowBounds, WindowOptions, point, px, size,
 };
 use ordia_core::{
-    AppSettings, AppStateSnapshot, AppearanceMode, EnterMoveDirection, LanguageSetting,
-    PersistedRecentFile, PersistedWindowBounds, SettingsStore,
+    AppSettings, AppStateSnapshot, AppearanceMode, EnterMoveDirection, JournalRecoveryManager,
+    LanguageSetting, PersistedRecentFile, PersistedWindowBounds, SettingsStore, UncleanSessionInfo,
 };
 use ordia_i18n::LanguagePreference;
 use ordia_sheet_model::SheetDocument;
@@ -172,6 +172,7 @@ pub struct MainWindow {
     next_tab_id: u64,
     saved_count: u64,
     pub(crate) recent_files: Vec<RecentFileEntry>,
+    pub(crate) recovery_sessions: Vec<UncleanSessionInfo>,
     pub(crate) loading_banner: Option<LoadingBannerState>,
     pub(crate) open_error_banner: Option<OpenErrorBanner>,
     pub(crate) load_ticket: u64,
@@ -332,6 +333,13 @@ impl MainWindow {
         };
 
         let palette_state = cx.new(|cx| CommandState::new(window, cx));
+        let recovery_sessions = if settings.advanced.enable_crash_recovery {
+            JournalRecoveryManager::with_data_dir(settings_store.dir())
+                .scan_unclean_sessions()
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
 
         Self {
             focus_handle,
@@ -355,6 +363,7 @@ impl MainWindow {
             next_tab_id: 4,
             saved_count: 0,
             recent_files,
+            recovery_sessions,
             loading_banner: None,
             open_error_banner: None,
             load_ticket: 0,
@@ -418,6 +427,7 @@ impl MainWindow {
             next_tab_id: 2,
             saved_count: 0,
             recent_files: Self::default_recent_entries(),
+            recovery_sessions: Vec::new(),
             loading_banner: None,
             open_error_banner: None,
             load_ticket: 0,
@@ -989,7 +999,9 @@ impl Render for MainWindow {
             el.child(self.render_toolbar_slot(cx))
         })
         .when(
-            self.loading_banner.is_some() || self.open_error_banner.is_some(),
+            !self.recovery_sessions.is_empty()
+                || self.loading_banner.is_some()
+                || self.open_error_banner.is_some(),
             |el| el.child(self.render_open_banners(cx)),
         )
         .child(
