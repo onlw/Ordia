@@ -217,9 +217,10 @@
 - 完成记录（2026-11-14）：在 `ordia-sheet-layout::merged` 中实现基于静态增广区间树的 `MergedRangeIndex`（`O(log M)` 单格包含查询、锚点解析与分块相交裁剪），在 `cell_style_render` 中实现跨 `64×16` 分块边界的合并区域内部网格线抑制、无缝填充、复合外框边框与居中文本裁剪；在 `viewport`、`viewport_render` 与 `ordia-render-gpui` 中实现 `10%–400%` 矢量无损缩放（底层 `GridAxisIndex` 与 `CachedTile` 保持 `100%` 坐标实现缩放零分块重建，`paint_display_list_scaled` 实时按缩放比排版清晰字体）、四象限冻结窗格裁剪与分隔线以及行列头蓝色双线隐藏指示标记；在 `ordia-sheet-model` 与 `ordia-sheet-view` 中接入可撤销的隐藏行列/合并单元格/网格线开关事务与状态栏 `Slider` + 快捷键（`Cmd/Ctrl + =/-/0`、`Cmd/Ctrl+Shift+G`）+ `Cmd/Ctrl + 滚轮` 缩放，通过 5 组 `insta` + `tiny-skia` 视觉快照与无界面 UI 集成测试。
 
 ### M2-06 多工作表
-- 状态：TODO ｜ 依赖：M2-02
+- 状态：DONE ｜ 依赖：M2-02
 - 交付物：底部工作表标签栏（切换活动工作表、左右滚动浏览、自定义标签底部/背景主题色条、已隐藏工作表计数与快速查看列表）
-- 验收标准：[ ] 无界面 UI 测试覆盖多工作表切换、独立滚动位置记忆、标签颜色渲染与隐藏工作表状态
+- 验收标准：[x] 无界面 UI 测试覆盖多工作表切换、独立滚动位置记忆、标签颜色渲染与隐藏工作表状态
+- 完成记录（2026-11-14）：在 `ordia-sheet-model` 中新增可撤销工作表级操作（`AddEmptySheet`/`DeleteEmptySheet`/`SetSheetTabColor`/`SetSheetVisibility`）、`hidden_sheets` 查询与每工作表独立选区/活动单元格记忆；在 `ordia-sheet-view` 中升级底部工作表标签栏，支持窗口化左右翻页滚动浏览（`sheet-tabs-scroll-left`/`sheet-tabs-scroll-right`）、每工作表独立 `(scroll_x, scroll_y, zoom_percent)` 状态记忆、自定义标签色底部主题色条与半透明背景着色、已隐藏工作表计数徽章（`hidden-sheets-btn`）及点击弹出的快速预览跳转面板（`hidden-sheets-popover`），通过无界面 UI 集成测试与 `cargo xtask ci`。
 
 ### M2-07 选区与导航
 - 状态：TODO ｜ 依赖：M2-02

@@ -8,7 +8,9 @@ use ordia_core::{
 use ordia_sheet_engine::{
     CellCoord, CellRange, CellStyle, CellValue, ColSpanMetric, ColorRgba, EngineError, FontStyle,
     FreezePane, IronCalcEngine, MAX_COLS, MAX_ROWS, RowMetric, SheetEngine, SheetInfo,
+    SheetVisibility,
 };
+use std::collections::BTreeMap;
 use std::io::Read as _;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
@@ -70,6 +72,7 @@ pub struct SheetDocument {
     active_sheet: u32,
     active_cell: CellCoord,
     selection: CellRange,
+    sheet_selections: BTreeMap<u32, (CellCoord, CellRange)>,
     dirty: bool,
     revision: u64,
     layout_revision: u64,
@@ -83,15 +86,20 @@ impl SheetDocument {
     #[must_use]
     pub fn from_engine(title: impl Into<String>, engine: Box<dyn SheetEngine>) -> Self {
         let cached_sheets = engine.sheets();
+        let active_sheet = cached_sheets
+            .iter()
+            .find(|s| s.visibility == SheetVisibility::Visible)
+            .map_or(0, |s| s.index);
         Self {
             engine,
             cached_sheets,
             document_kind: DocumentKind::SpreadsheetXlsx,
             title: title.into(),
             source_path: None,
-            active_sheet: 0,
+            active_sheet,
             active_cell: CellCoord::new(0, 0),
             selection: CellRange::single(CellCoord::new(0, 0)),
+            sheet_selections: BTreeMap::new(),
             dirty: false,
             revision: 1,
             layout_revision: 1,
@@ -284,12 +292,24 @@ impl SheetDocument {
         self.active_sheet
     }
 
-    /// Switches the active worksheet tab if valid.
+    /// Switches the active worksheet tab if valid, preserving per-sheet selection state (`M2-06`).
     pub fn set_active_sheet(&mut self, sheet: u32) -> bool {
         if (sheet as usize) < self.engine.sheet_count() && self.active_sheet != sheet {
+            self.sheet_selections
+                .insert(self.active_sheet, (self.active_cell, self.selection));
             self.active_sheet = sheet;
-            self.active_cell = CellCoord::new(0, 0);
-            self.selection = CellRange::single(self.active_cell);
+            let (next_cell, next_sel) =
+                self.sheet_selections
+                    .get(&sheet)
+                    .copied()
+                    .unwrap_or_else(|| {
+                        (
+                            CellCoord::new(0, 0),
+                            CellRange::single(CellCoord::new(0, 0)),
+                        )
+                    });
+            self.active_cell = next_cell;
+            self.selection = next_sel;
             self.layout_revision += 1;
             true
         } else {
@@ -360,6 +380,89 @@ impl SheetDocument {
         self.cached_sheets
             .iter()
             .find(|s| s.index == self.active_sheet)
+    }
+
+    /// Lists user-hidden worksheets (`SheetVisibility::Hidden`) in workbook order (`M2-06`).
+    #[must_use]
+    pub fn hidden_sheets(&self) -> Vec<&SheetInfo> {
+        self.cached_sheets
+            .iter()
+            .filter(|s| s.visibility == SheetVisibility::Hidden)
+            .collect()
+    }
+
+    /// Appends a new empty worksheet via an undoable [`Transaction`] and returns its index (`M2-06`).
+    pub fn add_sheet(&mut self, name: Option<&str>) -> Result<u32, EngineError> {
+        let index = self.engine.sheet_count() as u32;
+        let resolved_name = match name {
+            Some(n) if !n.trim().is_empty() => n.trim().to_string(),
+            _ => {
+                let mut candidate = index + 1;
+                loop {
+                    let s = format!("Sheet{candidate}");
+                    if self.engine.sheet_index_by_name(&s).is_none() {
+                        break s;
+                    }
+                    candidate += 1;
+                }
+            }
+        };
+        self.execute_transaction(Transaction::single(
+            format!("Add sheet {resolved_name}"),
+            SheetOp::AddEmptySheet {
+                index,
+                name: resolved_name,
+            },
+        ))?;
+        Ok(index)
+    }
+
+    /// Updates `sheet`'s custom tab accent color via an undoable [`Transaction`] (`M2-06`).
+    pub fn set_sheet_tab_color(
+        &mut self,
+        sheet: u32,
+        new_color: Option<ColorRgba>,
+    ) -> Result<(), EngineError> {
+        let old_color = self
+            .cached_sheets
+            .iter()
+            .find(|s| s.index == sheet)
+            .and_then(|s| s.tab_color);
+        if old_color == new_color {
+            return Ok(());
+        }
+        self.execute_transaction(Transaction::single(
+            "Set sheet tab color",
+            SheetOp::SetSheetTabColor {
+                sheet,
+                old_color,
+                new_color,
+            },
+        ))
+    }
+
+    /// Updates `sheet`'s visibility state via an undoable [`Transaction`] (`M2-06`).
+    pub fn set_sheet_visibility(
+        &mut self,
+        sheet: u32,
+        new_visibility: SheetVisibility,
+    ) -> Result<(), EngineError> {
+        let old_visibility = self
+            .cached_sheets
+            .iter()
+            .find(|s| s.index == sheet)
+            .map_or(SheetVisibility::Visible, |s| s.visibility);
+        if old_visibility == new_visibility {
+            return Ok(());
+        }
+        self.execute_transaction(Transaction::single(
+            "Set sheet visibility",
+            SheetOp::SetSheetVisibility {
+                sheet,
+                old_visibility,
+                new_visibility,
+            },
+        ))
     }
 
     fn expand_cached_used_range(&mut self, tx: &Transaction) {
@@ -581,6 +684,7 @@ impl SheetDocument {
     fn apply_tx_with_damage(&mut self, tx: &Transaction) -> Result<bool, EngineError> {
         let mut touches_layout = false;
         let mut touches_inputs = false;
+        let mut touches_sheets = false;
         for op in &tx.ops {
             match op {
                 SheetOp::SetCellInput { .. } => touches_inputs = true,
@@ -590,6 +694,13 @@ impl SheetDocument {
                 | SheetOp::SetRowHidden { .. }
                 | SheetOp::SetColHidden { .. }
                 | SheetOp::SetMerged { .. } => touches_layout = true,
+                SheetOp::AddEmptySheet { .. } | SheetOp::DeleteEmptySheet { .. } => {
+                    touches_layout = true;
+                    touches_sheets = true;
+                }
+                SheetOp::SetSheetTabColor { .. } | SheetOp::SetSheetVisibility { .. } => {
+                    touches_sheets = true;
+                }
                 SheetOp::SetCellStyle { .. } | SheetOp::SetShowGridLines { .. } => {}
             }
         }
@@ -642,7 +753,20 @@ impl SheetDocument {
                         range: *range,
                     });
                 }
-                SheetOp::SetFreezePane { .. } => {}
+                SheetOp::AddEmptySheet { .. } | SheetOp::DeleteEmptySheet { .. } => {
+                    self.pending_damage.push(SheetDamage::All);
+                }
+                SheetOp::SetFreezePane { .. }
+                | SheetOp::SetSheetTabColor { .. }
+                | SheetOp::SetSheetVisibility { .. } => {}
+            }
+        }
+
+        if touches_sheets {
+            self.cached_sheets = self.engine.sheets();
+            let count = self.engine.sheet_count() as u32;
+            if count > 0 && self.active_sheet >= count {
+                self.active_sheet = count - 1;
             }
         }
 

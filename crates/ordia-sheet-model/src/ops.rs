@@ -1,6 +1,9 @@
 //! Reversible operations and transactions for spreadsheet mutations (`AGENTS.md` §4.3).
 
-use ordia_sheet_engine::{CellCoord, CellRange, CellStyle, EngineError, FreezePane, SheetEngine};
+use ordia_sheet_engine::{
+    CellCoord, CellRange, CellStyle, ColorRgba, EngineError, FreezePane, SheetEngine,
+    SheetVisibility,
+};
 use serde::{Deserialize, Serialize};
 
 /// Atomic, reversible mutation applied to a [`SheetEngine`].
@@ -102,6 +105,38 @@ pub enum SheetOp {
         /// `true` to merge `range`, `false` to unmerge `range`.
         merged: bool,
     },
+    /// Inserts an empty worksheet with `name` at `index` (`M2-06`).
+    AddEmptySheet {
+        /// Zero-based destination tab index.
+        index: u32,
+        /// Worksheet title.
+        name: String,
+    },
+    /// Removes an empty worksheet at `index` (inverse of [`Self::AddEmptySheet`]).
+    DeleteEmptySheet {
+        /// Zero-based tab index to delete.
+        index: u32,
+        /// Original worksheet title for redo/inverse reconstruction.
+        name: String,
+    },
+    /// Updates a worksheet's custom tab accent color (`M2-06`).
+    SetSheetTabColor {
+        /// Zero-based worksheet index.
+        sheet: u32,
+        /// Previous tab accent color.
+        old_color: Option<ColorRgba>,
+        /// New tab accent color.
+        new_color: Option<ColorRgba>,
+    },
+    /// Updates a worksheet's visibility state (`M2-06`).
+    SetSheetVisibility {
+        /// Zero-based worksheet index.
+        sheet: u32,
+        /// Previous visibility state.
+        old_visibility: SheetVisibility,
+        /// New visibility state.
+        new_visibility: SheetVisibility,
+    },
 }
 
 impl SheetOp {
@@ -202,6 +237,32 @@ impl SheetOp {
                 range: *range,
                 merged: !*merged,
             },
+            Self::AddEmptySheet { index, name } => Self::DeleteEmptySheet {
+                index: *index,
+                name: name.clone(),
+            },
+            Self::DeleteEmptySheet { index, name } => Self::AddEmptySheet {
+                index: *index,
+                name: name.clone(),
+            },
+            Self::SetSheetTabColor {
+                sheet,
+                old_color,
+                new_color,
+            } => Self::SetSheetTabColor {
+                sheet: *sheet,
+                old_color: *new_color,
+                new_color: *old_color,
+            },
+            Self::SetSheetVisibility {
+                sheet,
+                old_visibility,
+                new_visibility,
+            } => Self::SetSheetVisibility {
+                sheet: *sheet,
+                old_visibility: *new_visibility,
+                new_visibility: *old_visibility,
+            },
         }
     }
 
@@ -285,6 +346,31 @@ impl SheetOp {
                 } else {
                     engine.unmerge_range(*sheet, *range)?;
                 }
+                Ok(false)
+            }
+            Self::AddEmptySheet { index, name } => {
+                let added = engine.add_sheet(Some(name))?;
+                if added != *index {
+                    engine.move_sheet(added, *index)?;
+                }
+                Ok(true)
+            }
+            Self::DeleteEmptySheet { index, .. } => {
+                engine.delete_sheet(*index)?;
+                Ok(true)
+            }
+            Self::SetSheetTabColor {
+                sheet, new_color, ..
+            } => {
+                engine.set_sheet_tab_color(*sheet, *new_color)?;
+                Ok(false)
+            }
+            Self::SetSheetVisibility {
+                sheet,
+                new_visibility,
+                ..
+            } => {
+                engine.set_sheet_visibility(*sheet, *new_visibility)?;
                 Ok(false)
             }
         }

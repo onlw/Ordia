@@ -5,12 +5,11 @@ use crate::grid_element::SheetGridElement;
 use crate::text_cache::ShapedLineCache;
 use gpui_kit::TestSupportExt as _;
 use gpui_kit::component::{
-    ActiveTheme as _, IconName, Selectable as _, Sizable as _, StyledExt as _,
+    ActiveTheme as _, Disableable as _, IconName, Selectable as _, Sizable as _, StyledExt as _,
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Enter as InputEnter, Escape as InputEscape, Input, InputEvent, InputState},
     slider::{Slider, SliderEvent, SliderState},
-    tab::{Tab, TabBar},
     v_flex,
 };
 use gpui_kit::prelude::FluentBuilder as _;
@@ -18,7 +17,7 @@ use gpui_kit::{
     App, AppContext as _, Bounds, Context, Entity, EntityInputHandler, FocusHandle, Focusable,
     Hsla, InteractiveElement as _, IntoElement, KeyBinding, ParentElement as _, Pixels, Point,
     Render, ShapedLine, SharedString, StatefulInteractiveElement as _, Styled as _, Subscription,
-    UTF16Selection, Window, div, px,
+    UTF16Selection, Window, div, px, rgba,
 };
 use ordia_render_gpui::ShapedTextCache;
 use ordia_sheet_layout::{
@@ -27,11 +26,22 @@ use ordia_sheet_layout::{
     build_tile_display_list_with_merges, plan_viewport_tiles,
 };
 use ordia_sheet_model::{
-    CellCoord, CellRange, ClipboardPayload, FreezePane, MAX_COLS, MAX_ROWS, SheetDocument,
-    parse_clipboard_payload,
+    CellCoord, CellRange, ClipboardPayload, ColorRgba, FreezePane, MAX_COLS, MAX_ROWS,
+    SheetDocument, SheetVisibility, parse_clipboard_payload,
 };
+use std::collections::BTreeMap;
 use std::ops::Range;
 use std::sync::{Arc, Mutex};
+
+/// Maximum number of worksheet tabs visible simultaneously before left/right scroll paging engages (`M2-06`).
+pub const MAX_VISIBLE_TABS_WINDOW: usize = 6;
+
+#[derive(Clone, Copy, Debug)]
+struct SheetViewportState {
+    scroll_x: f64,
+    scroll_y: f64,
+    zoom_percent: u16,
+}
 
 /// Abstraction over platform rich-clipboard (HTML + TSV) I/O injected by `ordia-app::platform`.
 pub trait SheetClipboardBridge: Send + Sync {
@@ -179,6 +189,9 @@ pub struct SheetWorkspaceView {
     zoom_slider: Entity<SliderState>,
     scroll_x: f64,
     scroll_y: f64,
+    sheet_view_states: BTreeMap<u32, SheetViewportState>,
+    tab_scroll_offset: usize,
+    show_hidden_sheets_popover: bool,
     last_canvas_bounds: Bounds<Pixels>,
     last_geometry: Option<ViewportGeometry>,
     pointer_dragging: bool,
@@ -299,6 +312,9 @@ impl SheetWorkspaceView {
             zoom_slider,
             scroll_x: 0.0,
             scroll_y: 0.0,
+            sheet_view_states: BTreeMap::new(),
+            tab_scroll_offset: 0,
+            show_hidden_sheets_popover: false,
             last_canvas_bounds: Bounds::default(),
             last_geometry: None,
             pointer_dragging: false,
@@ -521,6 +537,86 @@ impl SheetWorkspaceView {
     #[must_use]
     pub fn merged_index(&self) -> &MergedRangeIndex {
         &self.merged_index
+    }
+
+    /// Current horizontal tab-bar scroll window start index (`M2-06`).
+    #[must_use]
+    pub fn tab_scroll_offset(&self) -> usize {
+        self.tab_scroll_offset
+    }
+
+    /// Returns whether the hidden-worksheets quick-view popover is currently open (`M2-06`).
+    #[must_use]
+    pub fn is_hidden_sheets_popover_open(&self) -> bool {
+        self.show_hidden_sheets_popover
+    }
+
+    /// Scrolls the bottom worksheet tab bar window by `delta` tabs (`M2-06`).
+    pub fn scroll_tabs_by(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let displayed_len = self.displayed_tab_indices().len();
+        let max_off = displayed_len.saturating_sub(MAX_VISIBLE_TABS_WINDOW);
+        let next = (self.tab_scroll_offset as isize + delta).clamp(0, max_off as isize) as usize;
+        if next != self.tab_scroll_offset {
+            self.tab_scroll_offset = next;
+            cx.notify();
+        }
+    }
+
+    fn displayed_tab_indices(&self) -> Vec<u32> {
+        let active = self.document.active_sheet();
+        self.document
+            .sheets()
+            .iter()
+            .filter(|s| s.visibility == SheetVisibility::Visible || s.index == active)
+            .map(|s| s.index)
+            .collect()
+    }
+
+    /// Switches to worksheet `sheet_index`, preserving per-worksheet scroll, selection, and zoom (`M2-06`).
+    pub fn switch_to_sheet(
+        &mut self,
+        sheet_index: u32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.editing_cell.is_some() {
+            self.commit_edit(false, window, cx);
+        }
+        let prev = self.document.active_sheet();
+        self.sheet_view_states.insert(
+            prev,
+            SheetViewportState {
+                scroll_x: self.scroll_x,
+                scroll_y: self.scroll_y,
+                zoom_percent: self.zoom_percent,
+            },
+        );
+        if self.document.set_active_sheet(sheet_index) {
+            let restored =
+                self.sheet_view_states
+                    .get(&sheet_index)
+                    .copied()
+                    .unwrap_or(SheetViewportState {
+                        scroll_x: 0.0,
+                        scroll_y: 0.0,
+                        zoom_percent: DEFAULT_ZOOM_PERCENT,
+                    });
+            self.scroll_x = restored.scroll_x;
+            self.scroll_y = restored.scroll_y;
+            self.set_zoom_percent(restored.zoom_percent, window, cx);
+            self.ensure_layout_indices();
+            self.sync_formula_bar_to_active(window, cx);
+            let displayed = self.displayed_tab_indices();
+            if let Some(pos) = displayed.iter().position(|&ix| ix == sheet_index) {
+                if pos < self.tab_scroll_offset {
+                    self.tab_scroll_offset = pos;
+                } else if pos >= self.tab_scroll_offset + MAX_VISIBLE_TABS_WINDOW {
+                    self.tab_scroll_offset = pos + 1 - MAX_VISIBLE_TABS_WINDOW;
+                }
+            }
+            self.show_hidden_sheets_popover = false;
+            cx.notify();
+        }
     }
 
     pub(crate) fn row_index(&self) -> &GridAxisIndex {
@@ -1044,13 +1140,184 @@ impl SheetWorkspaceView {
             .child(summary)
     }
 
+    fn render_hidden_sheets_popover(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        if !self.show_hidden_sheets_popover {
+            return None;
+        }
+        let hidden = self.document.hidden_sheets();
+        if hidden.is_empty() {
+            return None;
+        }
+        let items: Vec<_> =
+            hidden
+                .into_iter()
+                .map(|info| {
+                    let idx = info.index;
+                    let title = SharedString::from(info.name.clone());
+                    let accent = info.tab_color;
+                    let item_id = SharedString::from(format!("hidden-sheet-item-{idx}"));
+                    h_flex()
+                        .id(item_id)
+                        .test_support()
+                        .aria_label(title.clone())
+                        .items_center()
+                        .gap_2()
+                        .px_2()
+                        .py_1()
+                        .rounded(cx.theme().radius)
+                        .cursor_pointer()
+                        .hover(|s| s.bg(cx.theme().accent))
+                        .when_some(accent, |el, c| {
+                            el.child(
+                                div().w_2().h_2().rounded_full().bg(Hsla::from(rgba(
+                                    u32::from_be_bytes([c.r, c.g, c.b, 0xFF]),
+                                ))),
+                            )
+                        })
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().popover_foreground)
+                                .child(title),
+                        )
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.switch_to_sheet(idx, window, cx);
+                        }))
+                })
+                .collect();
+
+        Some(
+            v_flex()
+                .id("hidden-sheets-popover")
+                .test_support()
+                .aria_label(ordia_i18n::t!("sheet.hidden_sheets_title"))
+                .absolute()
+                .bottom_2()
+                .left_3()
+                .min_w_40()
+                .p_1p5()
+                .gap_0p5()
+                .rounded(cx.theme().radius)
+                .border_1()
+                .border_color(cx.theme().border)
+                .bg(cx.theme().popover)
+                .child(
+                    div()
+                        .px_2()
+                        .py_0p5()
+                        .text_xs()
+                        .font_semibold()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(ordia_i18n::t!("sheet.hidden_sheets_title")),
+                )
+                .children(items),
+        )
+    }
+
+    fn render_sheet_tab_pill(
+        &self,
+        sheet_ix: u32,
+        name: &str,
+        is_active: bool,
+        is_hidden: bool,
+        tab_color: Option<ColorRgba>,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::AnyElement {
+        let label = if is_hidden {
+            SharedString::from(format!("{} ({})", name, ordia_i18n::t!("sheet.hidden_tag")))
+        } else {
+            SharedString::from(name.to_string())
+        };
+        let accent_hsla =
+            tab_color.map(|c| Hsla::from(rgba(u32::from_be_bytes([c.r, c.g, c.b, 0xFF]))));
+        let bg_color = if is_active {
+            cx.theme().background
+        } else if let Some(ac) = accent_hsla {
+            ac.opacity(0.14)
+        } else {
+            cx.theme().secondary
+        };
+
+        let tab_id = SharedString::from(format!("sheet-tab-{sheet_ix}"));
+        v_flex()
+            .id(tab_id)
+            .test_support()
+            .aria_label(label.clone())
+            .relative()
+            .px_2p5()
+            .py_0p5()
+            .rounded(cx.theme().radius)
+            .border_1()
+            .border_color(if is_active {
+                cx.theme().border
+            } else {
+                Hsla::transparent_black()
+            })
+            .bg(bg_color)
+            .cursor_pointer()
+            .hover(|s| s.bg(cx.theme().accent))
+            .child(
+                div()
+                    .text_xs()
+                    .when(is_active, |d| d.font_semibold())
+                    .when(is_hidden, |d| d.italic())
+                    .text_color(if is_active {
+                        cx.theme().foreground
+                    } else {
+                        cx.theme().muted_foreground
+                    })
+                    .child(label),
+            )
+            .when_some(tab_color, |el, c| {
+                let hex = SharedString::from(format!("#{:02X}{:02X}{:02X}", c.r, c.g, c.b));
+                let stripe = Hsla::from(rgba(u32::from_be_bytes([c.r, c.g, c.b, 0xFF])));
+                let color_id = SharedString::from(format!("sheet-tab-color-{sheet_ix}"));
+                el.child(
+                    div()
+                        .id(color_id)
+                        .test_support()
+                        .aria_label(hex)
+                        .w_full()
+                        .h(px(2.5))
+                        .mt_0p5()
+                        .rounded_full()
+                        .bg(stripe),
+                )
+            })
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.switch_to_sheet(sheet_ix, window, cx);
+            }))
+            .into_any_element()
+    }
+
     fn render_bottom_sheet_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let sheets = self.document.sheets();
-        let active_ix = self.document.active_sheet() as usize;
-        let tabs: Vec<Tab> = sheets
+        let active_sheet = self.document.active_sheet();
+        let displayed: Vec<_> = self
+            .document
+            .sheets()
             .iter()
-            .map(|s| Tab::new().label(SharedString::from(s.name.clone())))
+            .filter(|s| s.visibility == SheetVisibility::Visible || s.index == active_sheet)
+            .cloned()
             .collect();
+        let max_off = displayed.len().saturating_sub(MAX_VISIBLE_TABS_WINDOW);
+        let off = self.tab_scroll_offset.min(max_off);
+        let can_left = off > 0;
+        let can_right = off + MAX_VISIBLE_TABS_WINDOW < displayed.len();
+        let visible_slice = &displayed[off..(off + MAX_VISIBLE_TABS_WINDOW).min(displayed.len())];
+        let tab_pills: Vec<_> = visible_slice
+            .iter()
+            .map(|s| {
+                self.render_sheet_tab_pill(
+                    s.index,
+                    &s.name,
+                    s.index == active_sheet,
+                    s.visibility != SheetVisibility::Visible,
+                    s.tab_color,
+                    cx,
+                )
+            })
+            .collect();
+        let hidden_count = self.document.hidden_sheets().len();
 
         let active_val = self
             .document
@@ -1081,22 +1348,53 @@ impl SheetWorkspaceView {
             .border_color(cx.theme().border)
             .bg(cx.theme().secondary)
             .child(
-                TabBar::new("worksheet-bottom-tabs")
-                    .pill()
-                    .xsmall()
-                    .selected_index(active_ix)
-                    .children(tabs)
-                    .on_click(cx.listener(|this, ix, window, cx| {
-                        if this.editing_cell.is_some() {
-                            this.commit_edit(false, window, cx);
-                        }
-                        if this.document.set_active_sheet(*ix as u32) {
-                            this.scroll_x = 0.0;
-                            this.scroll_y = 0.0;
-                            this.sync_formula_bar_to_active(window, cx);
-                            cx.notify();
-                        }
-                    })),
+                h_flex()
+                    .id("worksheet-bottom-tabs")
+                    .items_center()
+                    .gap_1()
+                    .child(
+                        Button::new("sheet-tabs-scroll-left")
+                            .ghost()
+                            .xsmall()
+                            .disabled(!can_left)
+                            .icon(IconName::ChevronLeft)
+                            .tooltip(ordia_i18n::t!("sheet.tabs_scroll_left"))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.scroll_tabs_by(-1, cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("sheet-tabs-scroll-right")
+                            .ghost()
+                            .xsmall()
+                            .disabled(!can_right)
+                            .icon(IconName::ChevronRight)
+                            .tooltip(ordia_i18n::t!("sheet.tabs_scroll_right"))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.scroll_tabs_by(1, cx);
+                            })),
+                    )
+                    .children(tab_pills)
+                    .when(hidden_count > 0, |el| {
+                        let count_str = hidden_count.to_string();
+                        let badge_label = SharedString::from(ordia_i18n::t!(
+                            "sheet.hidden_count",
+                            "count" => &count_str
+                        ));
+                        el.child(
+                            Button::new("hidden-sheets-btn")
+                                .ghost()
+                                .xsmall()
+                                .selected(self.show_hidden_sheets_popover)
+                                .label(badge_label)
+                                .tooltip(ordia_i18n::t!("sheet.hidden_sheets_title"))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.show_hidden_sheets_popover =
+                                        !this.show_hidden_sheets_popover;
+                                    cx.notify();
+                                })),
+                        )
+                    }),
             )
             .child(
                 h_flex()
@@ -1317,6 +1615,9 @@ impl Render for SheetWorkspaceView {
                     .child(SheetGridElement::new("sheet-grid-canvas", view_entity))
                     .when_some(self.render_inline_editor_overlay(), |el, overlay| {
                         el.child(overlay)
+                    })
+                    .when_some(self.render_hidden_sheets_popover(cx), |el, popover| {
+                        el.child(popover)
                     })
                     .when(self.show_perf_overlay, |el| {
                         el.child(self.render_perf_overlay(cx))

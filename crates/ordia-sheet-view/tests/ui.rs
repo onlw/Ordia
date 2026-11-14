@@ -576,3 +576,154 @@ fn merged_selection_hidden_rows_gridlines_toggle_and_lossless_zoom(cx: &mut Test
     })
     .expect("verify M2-05 merged cells, hidden markers, gridlines toggle, and lossless zoom");
 }
+
+#[gpui_kit::test]
+fn multi_worksheet_tabs_independent_scroll_tab_colors_and_hidden_sheets(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        register_sheet_keybindings(cx);
+    });
+
+    let (handle, view) = cx.update(|cx| {
+        let mut doc = SheetDocument::new_empty("MultiSheetTest.xlsx").expect("doc");
+        doc.set_cell_input(CellCoord::new(11, 3), "Sheet1-D12")
+            .expect("S0 D12");
+
+        let names = [
+            "Q1 Revenue",
+            "Q2 Revenue",
+            "Q3 Revenue",
+            "Q4 Revenue",
+            "Forecast",
+            "Summary",
+            "Audit Log",
+            "Raw Ledger",
+        ];
+        for name in names {
+            doc.add_sheet(Some(name)).expect("add sheet");
+        }
+        // Populate sheet 1 (`Q1 Revenue`) and hidden sheet 7 (`Audit Log`).
+        doc.set_active_sheet(1);
+        doc.set_cell_input(CellCoord::new(0, 0), "Q1-Head")
+            .expect("S1 A1");
+        doc.set_cell_input(CellCoord::new(4, 1), "Q1-B5")
+            .expect("S1 B5");
+        doc.set_sheet_tab_color(1, Some(ordia_sheet_model::ColorRgba::rgb(16, 185, 129)))
+            .expect("tab color S1");
+
+        doc.set_active_sheet(7);
+        doc.set_cell_input(CellCoord::new(0, 0), "CONFIDENTIAL-AUDIT")
+            .expect("S7 A1");
+        doc.set_sheet_tab_color(7, Some(ordia_sheet_model::ColorRgba::rgb(239, 68, 68)))
+            .expect("tab color S7");
+
+        doc.set_active_sheet(0);
+        doc.set_sheet_visibility(7, ordia_sheet_model::SheetVisibility::Hidden)
+            .expect("hide S7");
+        doc.set_sheet_visibility(8, ordia_sheet_model::SheetVisibility::Hidden)
+            .expect("hide S8");
+
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds::new(
+                    Default::default(),
+                    size(px(1180.), px(720.)),
+                ))),
+                ..WindowOptions::default()
+            },
+            cx,
+            |window, cx| cx.new(|cx| SheetWorkspaceView::new(doc, window, cx)),
+        )
+        .expect("open window")
+    });
+
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+
+        // 1. Tab color bar renders on Q1 Revenue (`sheet-tab-color-1` == `#10B981`),
+        //    and hidden sheets (7, 8) are excluded from the visible tab bar.
+        assert_eq!(window.find("sheet-tab-color-1").label(), Some("#10B981"));
+        assert!(window.try_find("sheet-tab-7").is_none());
+        assert!(window.try_find("sheet-tab-8").is_none());
+
+        // 2. With 7 visible sheets (`0..=6`) and window size 6, `sheet-tab-6` (`Summary`) requires scrolling right!
+        assert!(window.try_find("sheet-tab-6").is_none());
+        window.click("sheet-tabs-scroll-right", cx);
+        assert_eq!(view.read(cx).tab_scroll_offset(), 1);
+        assert_eq!(window.find("sheet-tab-6").label(), Some("Summary"));
+        window.click("sheet-tabs-scroll-left", cx);
+        assert_eq!(view.read(cx).tab_scroll_offset(), 0);
+
+        // 3. Independent per-sheet scroll, selection, and zoom state memory!
+        view.update(cx, |state, cx| {
+            state.select_cell(CellCoord::new(11, 3), window, cx);
+            state.set_scroll_offset(360.0, 1200.0, cx);
+            state.set_zoom_percent(150, window, cx);
+        });
+        window.render_frame(cx);
+        assert_eq!(window.find("name-box").label(), Some("D12"));
+
+        // Switch to Q1 Revenue (`sheet-tab-1`): fresh `(0, 0)` scroll, `A1` selection, `100%` zoom.
+        window.click("sheet-tab-1", cx);
+        assert_eq!(view.read(cx).document().active_sheet(), 1);
+        assert_eq!(view.read(cx).scroll_x(), 0.0);
+        assert_eq!(view.read(cx).scroll_y(), 0.0);
+        assert_eq!(view.read(cx).zoom_percent(), 100);
+        assert_eq!(window.find("name-box").label(), Some("A1"));
+        assert_eq!(
+            view.read(cx).formula_editor().read(cx).value().as_ref(),
+            "Q1-Head"
+        );
+
+        // Scroll & select on Q1 Revenue (`B5`, `(90.0, 500.0)`), then switch back to Sheet1 (`sheet-tab-0`).
+        view.update(cx, |state, cx| {
+            state.select_cell(CellCoord::new(4, 1), window, cx);
+            state.set_scroll_offset(90.0, 500.0, cx);
+        });
+        window.render_frame(cx);
+
+        window.click("sheet-tab-0", cx);
+        assert_eq!(view.read(cx).document().active_sheet(), 0);
+        assert!((view.read(cx).scroll_x() - 360.0).abs() < 1e-4);
+        assert!((view.read(cx).scroll_y() - 1200.0).abs() < 1e-4);
+        assert_eq!(view.read(cx).zoom_percent(), 150);
+        assert_eq!(window.find("name-box").label(), Some("D12"));
+
+        // Switch back to Q1 Revenue (`sheet-tab-1`) and confirm its `(90.0, 500.0)` + `B5` persisted too!
+        window.click("sheet-tab-1", cx);
+        assert!((view.read(cx).scroll_x() - 90.0).abs() < 1e-4);
+        assert!((view.read(cx).scroll_y() - 500.0).abs() < 1e-4);
+        assert_eq!(window.find("name-box").label(), Some("B5"));
+
+        // 4. Hidden worksheets badge + quick-view popover jump.
+        let badge = window
+            .find("hidden-sheets-btn")
+            .label()
+            .expect("badge label")
+            .to_string();
+        assert!(badge.contains("(2)"), "unexpected hidden badge: {badge}");
+        assert!(window.try_find("hidden-sheets-popover").is_none());
+
+        window.click("hidden-sheets-btn", cx);
+        assert!(window.find("hidden-sheets-popover").visible());
+        assert_eq!(
+            window.find("hidden-sheet-item-7").label(),
+            Some("Audit Log")
+        );
+        assert_eq!(
+            window.find("hidden-sheet-item-8").label(),
+            Some("Raw Ledger")
+        );
+
+        // Clicking `Audit Log` in the quick-view popover switches to sheet 7 and displays its tab color!
+        window.click("hidden-sheet-item-7", cx);
+        assert!(window.try_find("hidden-sheets-popover").is_none());
+        assert_eq!(view.read(cx).document().active_sheet(), 7);
+        assert_eq!(
+            view.read(cx).formula_editor().read(cx).value().as_ref(),
+            "CONFIDENTIAL-AUDIT"
+        );
+        assert_eq!(window.find("sheet-tab-color-7").label(), Some("#EF4444"));
+    })
+    .expect("verify M2-06 multi-worksheet tabs, independent scroll memory, tab colors, and hidden sheets");
+}
