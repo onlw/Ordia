@@ -1,9 +1,14 @@
 //! Grid geometry, O(log N) coordinate indexing, tile caching, pagination, and `DisplayList` generation.
 
 mod axis;
+mod tile_cache;
 mod viewport;
 
 pub use axis::GridAxisIndex;
+pub use tile_cache::{
+    CachedTile, DEFAULT_MAX_CACHED_TILES, SheetTileCache, TILE_COLS, TILE_ROWS, TileKey, TilePlan,
+    TileRenderTheme, build_tile_display_list, plan_viewport_tiles,
+};
 pub use viewport::{
     DEFAULT_COL_HEADER_HEIGHT_PX, DEFAULT_ROW_HEADER_WIDTH_PX, GridHit, LogicalRect, PaneRegion,
     ViewportGeometry, ViewportParams,
@@ -105,6 +110,86 @@ mod tests {
             geom.hit_test(10.0, 24.0 + 25.0 + 5.0, &rows, &cols),
             GridHit::RowHeader(401)
         );
+    }
+
+    #[test]
+    fn editing_one_cell_invalidates_exactly_one_tile_and_plans_prefetch_ring() {
+        use ordia_render::Color;
+        use ordia_sheet_model::SheetDocument;
+
+        assert_eq!(TILE_ROWS, 64);
+        assert_eq!(TILE_COLS, 16);
+
+        let mut doc = SheetDocument::new_demo("TileTest.xlsx").expect("demo");
+        let rows = GridAxisIndex::from_row_metrics(MAX_ROWS, &[]);
+        let cols = GridAxisIndex::from_col_metrics(MAX_COLS, &[]);
+        let theme = TileRenderTheme {
+            default_text_color: Color::rgb(15, 23, 42),
+            grid_line_color: Some(Color::rgb(226, 232, 240)),
+        };
+
+        let mut cache = SheetTileCache::new(64);
+        let keys = [
+            TileKey::new(0, 0, 0),
+            TileKey::new(0, 1, 0),
+            TileKey::new(0, 0, 1),
+            TileKey::new(0, 1, 1),
+        ];
+        for &k in &keys {
+            let _ = cache.get_or_build(k, |tk| {
+                build_tile_display_list(&doc, tk, &rows, &cols, theme)
+            });
+        }
+        assert_eq!(cache.len(), 4);
+        assert_eq!(cache.misses(), 4);
+        assert_eq!(cache.hits(), 0);
+
+        // Edit an unreferenced cell H10 (row 9, col 7 -> inside tile (0, 0, 0)).
+        doc.set_cell_input(CellCoord::new(9, 7), "9999")
+            .expect("edit H10");
+        let damages = doc.drain_damage();
+        let evicted = cache.apply_damage(&damages);
+        assert_eq!(
+            evicted, 1,
+            "editing one unreferenced cell must invalidate exactly 1 tile"
+        );
+        assert!(!cache.contains(TileKey::new(0, 0, 0)));
+        assert!(cache.contains(TileKey::new(0, 1, 0)));
+        assert!(cache.contains(TileKey::new(0, 0, 1)));
+        assert!(cache.contains(TileKey::new(0, 1, 1)));
+
+        // Re-fetching all 4 tiles hits 3 cached tiles and rebuilds only the 1 dirty tile!
+        for &k in &keys {
+            let _ = cache.get_or_build(k, |tk| {
+                build_tile_display_list(&doc, tk, &rows, &cols, theme)
+            });
+        }
+        assert_eq!(cache.hits(), 3);
+        assert_eq!(cache.misses(), 5);
+
+        // Verify 1-screen viewport prefetch ring around scrolled main quadrant.
+        let geom = ViewportGeometry::compute(
+            ViewportParams {
+                canvas_width: 1200.0,
+                canvas_height: 800.0,
+                row_header_width: 54.0,
+                col_header_height: 24.0,
+                freeze: FreezePane {
+                    frozen_rows: 1,
+                    frozen_cols: 1,
+                },
+                scroll_x: 1800.0,
+                scroll_y: 3200.0,
+            },
+            &rows,
+            &cols,
+        );
+        let plan = plan_viewport_tiles(0, &geom, &rows, &cols);
+        assert!(!plan.visible.is_empty());
+        assert!(!plan.prefetch.is_empty());
+        for pf in &plan.prefetch {
+            assert!(!plan.visible.contains(pf));
+        }
     }
 
     #[test]

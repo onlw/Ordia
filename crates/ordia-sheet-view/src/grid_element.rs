@@ -9,23 +9,14 @@ use gpui_kit::{
     ScrollEvent, SharedString, Size, Style, TextAlign, Window, fill, outline, point, px, relative,
     rgba, size,
 };
+use ordia_render::Color as RenderColor;
+use ordia_render_gpui::{ShapedTextCache, paint_display_list_cached};
 use ordia_sheet_layout::{
     DEFAULT_COL_HEADER_HEIGHT_PX, DEFAULT_ROW_HEADER_WIDTH_PX, GridHit, LogicalRect, PaneRegion,
-    ViewportGeometry, ViewportParams,
+    TILE_COLS, TILE_ROWS, TileKey, TileRenderTheme, ViewportGeometry, ViewportParams,
 };
-use ordia_sheet_model::{
-    CellCoord, CellRange, CellValue, ColorRgba, HorizontalAlign, MAX_COLS, MAX_ROWS, col_to_letters,
-};
+use ordia_sheet_model::{CellCoord, CellRange, MAX_COLS, MAX_ROWS, col_to_letters};
 use std::time::Instant;
-
-/// Converts a document cell [`ColorRgba`] into GPUI [`Hsla`].
-///
-/// Document cell fills and font colors represent authored `.xlsx` data rather than UI chrome,
-/// and intentionally preserve their original RGB values across light and dark themes (`PLAN.md` §5.2).
-fn doc_color_to_hsla(c: ColorRgba) -> Hsla {
-    let packed = u32::from_be_bytes([c.r, c.g, c.b, c.a]);
-    Hsla::from(rgba(packed))
-}
 
 /// Converts a viewport-local [`LogicalRect`] into window-space [`Bounds<Pixels>`].
 fn to_window_bounds(canvas_origin: Point<Pixels>, rect: LogicalRect) -> Bounds<Pixels> {
@@ -131,6 +122,15 @@ impl Element for SheetGridElement {
                 state.col_index(),
             );
             state.record_resolved_viewport(bounds, &geom);
+            let show_grid = state
+                .document()
+                .active_sheet_info()
+                .is_none_or(|info| info.show_grid_lines);
+            let tile_theme = TileRenderTheme {
+                default_text_color: RenderColor::rgb(15, 23, 42),
+                grid_line_color: show_grid.then_some(RenderColor::rgb(226, 232, 240)),
+            };
+            state.prepare_viewport_tiles(&geom, tile_theme);
             geom
         });
 
@@ -152,7 +152,7 @@ impl Element for SheetGridElement {
         let geom = &prepaint.geometry;
 
         let bg_color = cx.theme().background;
-        let fg_color = cx.theme().foreground;
+        let paper_bg = Hsla::from(rgba(0xFFFF_FFFF));
         let header_bg = cx.theme().secondary;
         let header_fg = cx.theme().muted_foreground;
         let header_active_bg = cx.theme().accent;
@@ -163,10 +163,17 @@ impl Element for SheetGridElement {
         let frozen_divider_color = cx.theme().muted_foreground.opacity(0.45);
         let ui_font_family = cx.theme().font_family.clone();
 
-        // 1. Base canvas background
+        // 1. Base canvas chrome + invariant #FFFFFF spreadsheet paper surface (`PLAN.md` §5.2)
         window.paint_quad(fill(bounds, bg_color));
+        let paper_rect = LogicalRect::new(
+            geom.row_header_width,
+            geom.col_header_height,
+            (geom.canvas_rect.width - geom.row_header_width).max(0.0),
+            (geom.canvas_rect.height - geom.col_header_height).max(0.0),
+        );
+        window.paint_quad(fill(to_window_bounds(origin, paper_rect), paper_bg));
 
-        // 2. Paint each visible cell quadrant with hardware scissor clipping
+        // 2. Paint each visible cell quadrant from cached 64x16 `DisplayList` tiles + separate selection layer
         let panes = [
             geom.main_pane.as_ref(),
             geom.top_pane.as_ref(),
@@ -174,20 +181,27 @@ impl Element for SheetGridElement {
             geom.top_left_pane.as_ref(),
         ];
 
+        let mut shaped_cache = self
+            .view
+            .update(cx, |s, _| std::mem::take(s.tile_text_cache_mut()));
+
         for pane in panes.into_iter().flatten() {
             paint_cell_pane(
                 &self.view,
                 pane,
                 origin,
-                grid_line_color,
-                fg_color,
                 primary_color,
                 selection_tint,
                 &ui_font_family,
+                &mut shaped_cache,
                 window,
                 cx,
             );
         }
+
+        self.view.update(cx, |s, _| {
+            *s.tile_text_cache_mut() = shaped_cache;
+        });
 
         // 3. Paint top column headers, left row headers, and corner select-all box
         paint_headers(
@@ -272,11 +286,10 @@ fn paint_cell_pane(
     view: &Entity<SheetWorkspaceView>,
     pane: &PaneRegion,
     origin: Point<Pixels>,
-    grid_line_color: Hsla,
-    default_fg: Hsla,
     primary_color: Hsla,
     selection_tint: Hsla,
     ui_font_family: &SharedString,
+    shaped_cache: &mut ShapedTextCache,
     window: &mut Window,
     cx: &mut App,
 ) {
@@ -286,180 +299,50 @@ fn paint_cell_pane(
             bounds: pane_bounds,
         }),
         |window| {
-            let (selection, active_cell, show_grid) = {
+            let (sheet, selection, active_cell) = {
                 let state = view.read(cx);
-                let show_grid = state
-                    .document()
-                    .active_sheet_info()
-                    .is_none_or(|info| info.show_grid_lines);
                 (
+                    state.document().active_sheet(),
                     state.document().selection(),
                     state.document().active_cell(),
-                    show_grid,
                 )
             };
 
-            // Gridlines in O(visible_rows + visible_cols) quads
-            if show_grid {
-                let state = view.read(cx);
-                for row in pane.rows.clone() {
-                    let h = state.row_index().span_size(row);
-                    if h <= 0.0 {
-                        continue;
-                    }
-                    let y = pane.clip_rect.y
-                        + ((state.row_index().index_to_offset(row) - pane.sheet_origin_y) as f32)
-                        + h
-                        - 1.0;
-                    window.paint_quad(fill(
-                        to_window_bounds(
-                            origin,
-                            LogicalRect::new(pane.clip_rect.x, y, pane.clip_rect.width, 1.0),
-                        ),
-                        grid_line_color,
-                    ));
-                }
-                for col in pane.cols.clone() {
-                    let w = state.col_index().span_size(col);
-                    if w <= 0.0 {
-                        continue;
-                    }
-                    let x = pane.clip_rect.x
-                        + ((state.col_index().index_to_offset(col) - pane.sheet_origin_x) as f32)
-                        + w
-                        - 1.0;
-                    window.paint_quad(fill(
-                        to_window_bounds(
-                            origin,
-                            LogicalRect::new(x, pane.clip_rect.y, 1.0, pane.clip_rect.height),
-                        ),
-                        grid_line_color,
-                    ));
-                }
-            }
+            // 1. Content layer: paint pre-built 64x16 `DisplayList` tiles intersecting this quadrant.
+            let r0 = *pane.rows.start() / TILE_ROWS;
+            let r1 = *pane.rows.end() / TILE_ROWS;
+            let c0 = *pane.cols.start() / TILE_COLS;
+            let c1 = *pane.cols.end() / TILE_COLS;
 
-            // Visible cells: fills, multi-cell selection tint, and shaped single-line text
-            for row in pane.rows.clone() {
-                let (row_y, row_h) = {
-                    let state = view.read(cx);
-                    let h = state.row_index().span_size(row);
-                    let y = pane.clip_rect.y
-                        + ((state.row_index().index_to_offset(row) - pane.sheet_origin_y) as f32);
-                    (y, h)
-                };
-                if row_h <= 0.0 {
-                    continue;
-                }
-
-                for col in pane.cols.clone() {
-                    let (col_x, col_w) = {
-                        let state = view.read(cx);
-                        let w = state.col_index().span_size(col);
-                        let x = pane.clip_rect.x
-                            + ((state.col_index().index_to_offset(col) - pane.sheet_origin_x)
-                                as f32);
-                        (x, w)
-                    };
-                    if col_w <= 0.0 {
-                        continue;
-                    }
-
-                    let coord = CellCoord::new(row, col);
-                    let cell_rect = LogicalRect::new(col_x, row_y, col_w - 1.0, row_h - 1.0);
-
-                    let (display_text, val_kind, style) = {
-                        let state = view.read(cx);
-                        let doc = state.document();
-                        let text = doc.cell_display_text(coord).unwrap_or_default();
-                        let style = doc.cell_style(coord).unwrap_or_default();
-                        let val = if text.is_empty() {
-                            CellValue::Empty
-                        } else {
-                            doc.cell_value(coord).unwrap_or_default()
-                        };
-                        (text, val, style)
-                    };
-
-                    if let Some(fill_rgb) = style.fill_color {
-                        window.paint_quad(fill(
-                            to_window_bounds(origin, cell_rect),
-                            doc_color_to_hsla(fill_rgb),
-                        ));
-                    }
-
-                    if selection.contains(coord) && coord != active_cell {
-                        window
-                            .paint_quad(fill(to_window_bounds(origin, cell_rect), selection_tint));
-                    }
-
-                    if !display_text.is_empty() {
-                        let text_color = style.font.color.map_or(default_fg, doc_color_to_hsla);
-                        let font_px = px((style.font.size_pt * 1.18).clamp(11.0, 28.0));
-                        let shaped = view.update(cx, |state, _cx| {
-                            state.shape_cached_line(
-                                window,
-                                SharedString::from(display_text),
-                                ui_font_family.clone(),
-                                font_px,
-                                style.font.bold,
-                                style.font.italic,
-                                text_color,
-                            )
-                        });
-
-                        let pad_x = 6.0_f32;
-                        let inner_w = (col_w - pad_x * 2.0).max(0.0);
-                        let align = match style.horizontal_align {
-                            HorizontalAlign::Right => TextAlign::Right,
-                            HorizontalAlign::Center | HorizontalAlign::CenterContinuous => {
-                                TextAlign::Center
-                            }
-                            HorizontalAlign::General => match val_kind {
-                                CellValue::Number(_) => TextAlign::Right,
-                                CellValue::Boolean(_) | CellValue::Error(_) => TextAlign::Center,
-                                CellValue::Empty | CellValue::Text(_) => TextAlign::Left,
-                            },
-                            _ => TextAlign::Left,
-                        };
-
-                        if shaped.width > px(inner_w) {
-                            let cell_bounds = to_window_bounds(origin, cell_rect);
-                            window.with_content_mask(
-                                Some(ContentMask {
-                                    bounds: cell_bounds,
-                                }),
-                                |window| {
-                                    let _ = shaped.paint(
-                                        point(origin.x + px(col_x + pad_x), origin.y + px(row_y)),
-                                        px(row_h),
-                                        align,
-                                        Some(px(inner_w)),
-                                        window,
-                                        cx,
-                                    );
-                                },
-                            );
-                        } else {
-                            let _ = shaped.paint(
-                                point(origin.x + px(col_x + pad_x), origin.y + px(row_y)),
-                                px(row_h),
-                                align,
-                                Some(px(inner_w)),
-                                window,
-                                cx,
-                            );
-                        }
+            for tr in r0..=r1 {
+                for tc in c0..=c1 {
+                    let key = TileKey::new(sheet, tr, tc);
+                    let maybe_tile = view.read(cx).peek_cached_tile(key);
+                    if let Some(tile) = maybe_tile {
+                        let tx =
+                            pane.clip_rect.x + ((tile.sheet_origin_x - pane.sheet_origin_x) as f32);
+                        let ty =
+                            pane.clip_rect.y + ((tile.sheet_origin_y - pane.sheet_origin_y) as f32);
+                        let tile_origin = point(origin.x + px(tx), origin.y + px(ty));
+                        paint_display_list_cached(
+                            &tile.display_list,
+                            tile_origin,
+                            ui_font_family,
+                            shaped_cache,
+                            window,
+                            cx,
+                        );
                     }
                 }
             }
 
-            // Selection ring inside this pane if selection intersects it
+            // 2. Separate selection & highlight overlay layer (`PLAN.md` §4.3: O(1) quads, zero tile rebuilds).
             let pane_range = CellRange::new(
                 CellCoord::new(*pane.rows.start(), *pane.cols.start()),
                 CellCoord::new(*pane.rows.end(), *pane.cols.end()),
             );
             if selection.intersects(pane_range) {
-                let (sx, sy, sw, sh) = {
+                let (sx, sy, sw, sh, ax0, ay0, ax1, ay1) = {
                     let state = view.read(cx);
                     let x0 = pane.clip_rect.x
                         + ((state.col_index().index_to_offset(selection.start.col)
@@ -473,14 +356,76 @@ fn paint_cell_pane(
                     let y1 = pane.clip_rect.y
                         + ((state.row_index().index_end_offset(selection.end.row)
                             - pane.sheet_origin_y) as f32);
-                    (x0, y0, (x1 - x0).max(1.0), (y1 - y0).max(1.0))
+
+                    let ac_x0 = pane.clip_rect.x
+                        + ((state.col_index().index_to_offset(active_cell.col)
+                            - pane.sheet_origin_x) as f32);
+                    let ac_x1 = pane.clip_rect.x
+                        + ((state.col_index().index_end_offset(active_cell.col)
+                            - pane.sheet_origin_x) as f32);
+                    let ac_y0 = pane.clip_rect.y
+                        + ((state.row_index().index_to_offset(active_cell.row)
+                            - pane.sheet_origin_y) as f32);
+                    let ac_y1 = pane.clip_rect.y
+                        + ((state.row_index().index_end_offset(active_cell.row)
+                            - pane.sheet_origin_y) as f32);
+
+                    (
+                        x0,
+                        y0,
+                        (x1 - x0).max(1.0),
+                        (y1 - y0).max(1.0),
+                        ac_x0,
+                        ac_y0,
+                        ac_x1,
+                        ac_y1,
+                    )
                 };
+
+                if selection.start != selection.end {
+                    let sx1 = sx + sw;
+                    let sy1 = sy + sh;
+                    if ay0 > sy {
+                        window.paint_quad(fill(
+                            to_window_bounds(origin, LogicalRect::new(sx, sy, sw, ay0 - sy)),
+                            selection_tint,
+                        ));
+                    }
+                    if ay1 < sy1 {
+                        window.paint_quad(fill(
+                            to_window_bounds(origin, LogicalRect::new(sx, ay1, sw, sy1 - ay1)),
+                            selection_tint,
+                        ));
+                    }
+                    let mid_y0 = ay0.max(sy);
+                    let mid_h = (ay1.min(sy1) - mid_y0).max(0.0);
+                    if mid_h > 0.0 {
+                        if ax0 > sx {
+                            window.paint_quad(fill(
+                                to_window_bounds(
+                                    origin,
+                                    LogicalRect::new(sx, mid_y0, ax0 - sx, mid_h),
+                                ),
+                                selection_tint,
+                            ));
+                        }
+                        if ax1 < sx1 {
+                            window.paint_quad(fill(
+                                to_window_bounds(
+                                    origin,
+                                    LogicalRect::new(ax1, mid_y0, sx1 - ax1, mid_h),
+                                ),
+                                selection_tint,
+                            ));
+                        }
+                    }
+                }
+
                 let sel_bounds = to_window_bounds(origin, LogicalRect::new(sx, sy, sw, sh));
                 let mut quad = outline(sel_bounds, primary_color, BorderStyle::Solid);
                 quad.border_widths = px(2.0).into();
                 window.paint_quad(quad);
 
-                // Fill-handle square at bottom-right corner
                 let handle_rect = LogicalRect::new(sx + sw - 3.5, sy + sh - 3.5, 6.0, 6.0);
                 window.paint_quad(fill(to_window_bounds(origin, handle_rect), primary_color));
             }

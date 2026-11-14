@@ -1,12 +1,139 @@
 //! GPUI rendering backend translating platform-independent [`ordia_render::DisplayList`] commands
-//! into GPU quads, paths, content masks, and shaped text runs.
+//! into GPU quads, paths, content masks, and cached shaped text runs (`M2-02`, `M2-03`).
+
+use std::collections::HashMap;
 
 use gpui_kit::{
     App, BorderStyle, Bounds, ContentMask, Font, FontStyle as GpuiFontStyle,
-    FontWeight as GpuiFontWeight, Hsla, PathBuilder, Pixels, Point as GpuiPoint, SharedString,
-    TextAlign, TextRun, Window, fill, outline, point, px, rgba, size,
+    FontWeight as GpuiFontWeight, Hsla, PathBuilder, Pixels, Point as GpuiPoint, ShapedLine,
+    SharedString, StrikethroughStyle, TextAlign, TextRun, UnderlineStyle, Window, fill, outline,
+    point, px, rgba, size,
 };
-use ordia_render::{Color, DisplayList, FontWeight, RectF, RenderCommand};
+use ordia_render::{
+    Color, DisplayList, FontWeight, RectF, RenderCommand, TextHAlign, TextRunStyle,
+};
+
+const MAX_CACHED_SHAPED_LINES: usize = 4_096;
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct ShapedKey {
+    text: SharedString,
+    family: SharedString,
+    size_bits: u32,
+    weight: FontWeight,
+    italic: bool,
+    underline: bool,
+    strikethrough: bool,
+    rgba_packed: u32,
+}
+
+/// Two-generation `ShapedLine` cache accelerating [`paint_display_list_cached`] during rapid scrolling.
+#[derive(Default)]
+pub struct ShapedTextCache {
+    current: HashMap<ShapedKey, ShapedLine>,
+    previous: HashMap<ShapedKey, ShapedLine>,
+    last_rem_bits: u32,
+}
+
+impl ShapedTextCache {
+    /// Creates an empty two-generation shaped-line cache.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            current: HashMap::with_capacity(512),
+            previous: HashMap::with_capacity(512),
+            last_rem_bits: 0,
+        }
+    }
+
+    /// Shapes `text` or returns an already-shaped [`ShapedLine`].
+    pub fn shape_or_get(
+        &mut self,
+        window: &Window,
+        text: SharedString,
+        family: SharedString,
+        style: &TextRunStyle,
+    ) -> ShapedLine {
+        let rem_bits = f32::from(window.rem_size()).to_bits();
+        if self.last_rem_bits != rem_bits {
+            self.current.clear();
+            self.previous.clear();
+            self.last_rem_bits = rem_bits;
+        }
+        let packed =
+            u32::from_be_bytes([style.color.r, style.color.g, style.color.b, style.color.a]);
+        let key = ShapedKey {
+            text: text.clone(),
+            family: family.clone(),
+            size_bits: style.font_size.to_bits(),
+            weight: style.weight,
+            italic: style.italic,
+            underline: style.underline,
+            strikethrough: style.strikethrough,
+            rgba_packed: packed,
+        };
+        if let Some(hit) = self.current.get(&key) {
+            return hit.clone();
+        }
+        if let Some(promoted) = self.previous.remove(&key) {
+            if self.current.len() >= MAX_CACHED_SHAPED_LINES {
+                std::mem::swap(&mut self.previous, &mut self.current);
+                self.current.clear();
+            }
+            self.current.insert(key, promoted.clone());
+            return promoted;
+        }
+        if self.current.len() >= MAX_CACHED_SHAPED_LINES {
+            std::mem::swap(&mut self.previous, &mut self.current);
+            self.current.clear();
+        }
+        let shaped = shape_uncached_line(window, text, family, style);
+        self.current.insert(key, shaped.clone());
+        shaped
+    }
+}
+
+fn shape_uncached_line(
+    window: &Window,
+    text: SharedString,
+    family: SharedString,
+    style: &TextRunStyle,
+) -> ShapedLine {
+    let gpui_weight = match style.weight {
+        FontWeight::Regular => GpuiFontWeight::NORMAL,
+        FontWeight::Medium => GpuiFontWeight::MEDIUM,
+        FontWeight::Bold => GpuiFontWeight::BOLD,
+    };
+    let hsla_color = to_hsla(style.color);
+    let run = TextRun {
+        len: text.len(),
+        font: Font {
+            family,
+            features: Default::default(),
+            fallbacks: None,
+            weight: gpui_weight,
+            style: if style.italic {
+                GpuiFontStyle::Italic
+            } else {
+                GpuiFontStyle::Normal
+            },
+        },
+        color: hsla_color,
+        background_color: None,
+        underline: style.underline.then_some(UnderlineStyle {
+            thickness: px(1.0),
+            color: Some(hsla_color),
+            wavy: false,
+        }),
+        strikethrough: style.strikethrough.then_some(StrikethroughStyle {
+            thickness: px(1.0),
+            color: Some(hsla_color),
+        }),
+    };
+    window
+        .text_system()
+        .shape_line(text, px(style.font_size), &[run], None)
+}
 
 fn to_hsla(c: Color) -> Hsla {
     Hsla::from(rgba(u32::from_be_bytes([c.r, c.g, c.b, c.a])))
@@ -19,7 +146,7 @@ fn to_bounds(origin: GpuiPoint<Pixels>, r: RectF) -> Bounds<Pixels> {
     )
 }
 
-/// Paints `list` onto `window` anchored at `origin`.
+/// Paints `list` onto `window` anchored at `origin` without an external shaped-line cache.
 pub fn paint_display_list(
     list: &DisplayList,
     origin: GpuiPoint<Pixels>,
@@ -27,13 +154,40 @@ pub fn paint_display_list(
     window: &mut Window,
     cx: &mut App,
 ) {
-    paint_slice(&list.commands, origin, default_font_family, window, cx);
+    paint_slice(
+        &list.commands,
+        origin,
+        default_font_family,
+        None,
+        window,
+        cx,
+    );
+}
+
+/// Paints `list` onto `window` anchored at `origin`, reusing shaped text lines in `cache`.
+pub fn paint_display_list_cached(
+    list: &DisplayList,
+    origin: GpuiPoint<Pixels>,
+    default_font_family: &SharedString,
+    cache: &mut ShapedTextCache,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    paint_slice(
+        &list.commands,
+        origin,
+        default_font_family,
+        Some(cache),
+        window,
+        cx,
+    );
 }
 
 fn paint_slice(
     commands: &[RenderCommand],
     origin: GpuiPoint<Pixels>,
     default_font_family: &SharedString,
+    mut cache: Option<&mut ShapedTextCache>,
     window: &mut Window,
     cx: &mut App,
 ) {
@@ -88,41 +242,23 @@ fn paint_slice(
                     .as_deref()
                     .map(|s| SharedString::from(s.to_string()))
                     .unwrap_or_else(|| default_font_family.clone());
-                let gpui_weight = match style.weight {
-                    FontWeight::Regular => GpuiFontWeight::NORMAL,
-                    FontWeight::Medium => GpuiFontWeight::MEDIUM,
-                    FontWeight::Bold => GpuiFontWeight::BOLD,
+                let shared_text = SharedString::from(text.clone());
+                let shaped = if let Some(c) = cache.as_deref_mut() {
+                    c.shape_or_get(window, shared_text, family, style)
+                } else {
+                    shape_uncached_line(window, shared_text, family, style)
                 };
-                let run = TextRun {
-                    len: text.len(),
-                    font: Font {
-                        family,
-                        features: Default::default(),
-                        fallbacks: None,
-                        weight: gpui_weight,
-                        style: if style.italic {
-                            GpuiFontStyle::Italic
-                        } else {
-                            GpuiFontStyle::Normal
-                        },
-                    },
-                    color: to_hsla(style.color),
-                    background_color: None,
-                    underline: None,
-                    strikethrough: None,
+                let align = match style.h_align {
+                    TextHAlign::Left => TextAlign::Left,
+                    TextHAlign::Center => TextAlign::Center,
+                    TextHAlign::Right => TextAlign::Right,
                 };
-                let shaped = window.text_system().shape_line(
-                    SharedString::from(text.clone()),
-                    px(style.font_size),
-                    &[run],
-                    None,
-                );
                 let top_y = text_origin.y - (style.font_size * 0.82);
                 let _ = shaped.paint(
                     point(origin.x + px(text_origin.x), origin.y + px(top_y)),
                     px(style.font_size * 1.2),
-                    TextAlign::Left,
-                    None,
+                    align,
+                    style.max_width.map(px),
                     window,
                     cx,
                 );
@@ -137,7 +273,14 @@ fn paint_slice(
                     bounds: to_bounds(origin, *rect),
                 };
                 window.with_content_mask(Some(mask), |window| {
-                    paint_slice(sub, origin, default_font_family, window, cx);
+                    paint_slice(
+                        sub,
+                        origin,
+                        default_font_family,
+                        cache.as_deref_mut(),
+                        window,
+                        cx,
+                    );
                 });
                 idx = (close_idx + 1).min(commands.len());
             }

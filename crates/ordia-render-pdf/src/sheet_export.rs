@@ -146,7 +146,10 @@ pub fn build_sheet_range_display_list(
                             font_size,
                             weight,
                             italic: style.font.italic,
+                            underline: style.font.underline,
+                            strikethrough: style.font.strikethrough,
                             color: fg,
+                            ..TextRunStyle::default()
                         },
                     );
                 });

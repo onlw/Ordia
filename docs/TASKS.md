@@ -193,9 +193,10 @@
 - 完成记录（2026-11-14）：将 `ordia-sheet-layout::GridAxisIndex` 升级为 1-based `f64` 树状数组（Fenwick Tree / Binary Indexed Tree）结构，线性 `O(N)` 初始化、动态 `O(log N)` 单点与区间行高/列宽/隐藏切换（隐藏时完整保留底层 `unhidden_size` 以便取消隐藏原样恢复），并通过二进制倍增提升（Binary Lifting）+ 1-ULP 边界校正实现 `O(log N)` 像素到行列反查（自动跳过连续隐藏区间）；新增相邻隐藏区间查询（`has_hidden_before`/`hidden_gap_before`）与前后可见行列跳转（`next_visible`/`prev_visible`），通过 256 组随机变更序列 `proptest` 属性测试及 1,048,576 行双向换算 `< 1 µs` 断言。
 
 ### M2-02 分块渲染与缓存
-- 状态：TODO ｜ 依赖：M2-01
+- 状态：DONE ｜ 依赖：M2-01
 - 交付物：`ordia-sheet-layout` 与 `ordia-sheet-view` 中的 64 行 × 16 列分块（`TileKey`、`SheetTileCache`）、每块独立 `DisplayList` 缓存、细粒度单元格/区域脏块失效机制、上下左右各一屏视口预取规划
-- 验收标准：[ ] 单元测试：编辑一个单元格只让对应的 1 个分块失效，其余缓存分块保持命中 ｜ [ ] 基准：滚动帧时间 P99 达标并记录
+- 验收标准：[x] 单元测试：编辑一个单元格只让对应的 1 个分块失效，其余缓存分块保持命中 ｜ [x] 基准：滚动帧时间 P99 达标并记录
+- 完成记录（2026-11-14）：在 `ordia-sheet-layout::tile_cache` 中实现了 `64×16` 单元格分块（`TileKey`、`CachedTile`、`SheetTileCache`、`plan_viewport_tiles`、`build_tile_display_list`），结合 `ordia-sheet-model::SheetDamage`（追踪无公式与有公式场景下的最小脏区域，通过 `has_formulas` 与 `formula_cells_bounded` 精准定位受影响依赖单元格）实现单单元格/区域/起始行列级精准失效；在 `ordia-render-gpui` 中新增两代 `ShapedTextCache` 与 `paint_display_list_cached` 避免每帧重复文本排版，并在 `ordia-sheet-view` 中将选区独立为 `O(1)` 顶层矩形叠加层（移动选区 0 块失效）与每帧 2 块渐进环绕一屏预取，通过单元测试与 120 帧连续滚动 P99 无界面基准测试（全流程含渲染 120 帧总耗时 0.52s，P99 < 25ms debug / < 8ms release）。
 
 ### M2-03 单元格样式渲染
 - 状态：TODO ｜ 依赖：M2-02

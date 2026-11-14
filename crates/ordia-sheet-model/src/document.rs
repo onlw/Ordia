@@ -17,6 +17,49 @@ use std::path::{Path, PathBuf};
 /// to avoid blocking first paint with a full multi-million-cell recalculation.
 const UNRECALCULATED_OPEN_THRESHOLD_BYTES: u64 = 8 * 1024 * 1024;
 
+/// Fine-grained visual invalidation scope emitted by [`SheetDocument`] mutations (`M2-02`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SheetDamage {
+    /// A single cell's content or style changed.
+    Cell {
+        /// Zero-based worksheet index.
+        sheet: u32,
+        /// Target cell coordinate.
+        coord: CellCoord,
+    },
+    /// A rectangular range of cells changed.
+    Range {
+        /// Zero-based worksheet index.
+        sheet: u32,
+        /// Inclusive cell range.
+        range: CellRange,
+    },
+    /// Row height or visibility changed at `from_row` (shifts/invalidates tiles from `from_row` downward).
+    FromRow {
+        /// Zero-based worksheet index.
+        sheet: u32,
+        /// First affected zero-based row.
+        from_row: u32,
+    },
+    /// Column width or visibility changed at `from_col` (shifts/invalidates tiles from `from_col` rightward).
+    FromCol {
+        /// Zero-based worksheet index.
+        sheet: u32,
+        /// First affected zero-based column.
+        from_col: u32,
+    },
+    /// Entire worksheet's tiles should be invalidated.
+    Sheet {
+        /// Zero-based worksheet index.
+        sheet: u32,
+    },
+    /// Entire workbook's tile cache should be invalidated.
+    All,
+}
+
+const FORMULA_DIFF_LIMIT: usize = 8_192;
+
 /// Stateful spreadsheet workbook model mediating all reads and [`Transaction`]-based mutations.
 pub struct SheetDocument {
     engine: Box<dyn SheetEngine>,
@@ -30,6 +73,7 @@ pub struct SheetDocument {
     dirty: bool,
     revision: u64,
     layout_revision: u64,
+    pending_damage: Vec<SheetDamage>,
     undo_stack: Vec<Transaction>,
     redo_stack: Vec<Transaction>,
 }
@@ -51,6 +95,7 @@ impl SheetDocument {
             dirty: false,
             revision: 1,
             layout_revision: 1,
+            pending_damage: Vec::new(),
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
         }
@@ -166,6 +211,7 @@ impl SheetDocument {
 
         doc.execute_transaction(Transaction::new("Initialize demo sheet", ops))?;
         doc.undo_stack.clear();
+        doc.pending_damage.clear();
         doc.dirty = false;
         doc.set_active_cell(CellCoord::new(1, 1));
         Ok(doc)
@@ -318,14 +364,18 @@ impl SheetDocument {
 
     fn expand_cached_used_range(&mut self, tx: &Transaction) {
         for op in &tx.ops {
-            if let SheetOp::SetCellInput {
-                sheet,
-                coord,
-                new_input,
-                ..
-            } = op
-                && !new_input.is_empty()
-                && let Some(info) = self.cached_sheets.iter_mut().find(|s| s.index == *sheet)
+            let target = match op {
+                SheetOp::SetCellInput {
+                    sheet,
+                    coord,
+                    new_input,
+                    ..
+                } if !new_input.is_empty() => Some((*sheet, *coord)),
+                SheetOp::SetCellStyle { sheet, coord, .. } => Some((*sheet, *coord)),
+                _ => None,
+            };
+            if let Some((sheet, coord)) = target
+                && let Some(info) = self.cached_sheets.iter_mut().find(|s| s.index == sheet)
             {
                 info.used_range = Some(match info.used_range {
                     Some(existing) => CellRange::new(
@@ -338,10 +388,29 @@ impl SheetDocument {
                             existing.end.col.max(coord.col),
                         ),
                     ),
-                    None => CellRange::single(*coord),
+                    None => CellRange::single(coord),
                 });
             }
         }
+    }
+
+    /// Reads the formatted display text of `coord` on `sheet`.
+    pub fn cell_display_text_on(
+        &self,
+        sheet: u32,
+        coord: CellCoord,
+    ) -> Result<String, EngineError> {
+        self.engine.cell_display_text(sheet, coord)
+    }
+
+    /// Reads the evaluated [`CellValue`] of `coord` on `sheet`.
+    pub fn cell_value_on(&self, sheet: u32, coord: CellCoord) -> Result<CellValue, EngineError> {
+        self.engine.cell_value(sheet, coord)
+    }
+
+    /// Reads the effective [`CellStyle`] of `coord` on `sheet`.
+    pub fn cell_style_on(&self, sheet: u32, coord: CellCoord) -> Result<CellStyle, EngineError> {
+        self.engine.cell_style(sheet, coord)
     }
 
     /// Reads the formatted display text of `coord` on the active worksheet.
@@ -379,20 +448,97 @@ impl SheetDocument {
         self.engine.custom_col_metrics(self.active_sheet)
     }
 
+    /// Drains fine-grained [`SheetDamage`] scopes accumulated since the last layout/tile sync (`M2-02`).
+    pub fn drain_damage(&mut self) -> Vec<SheetDamage> {
+        std::mem::take(&mut self.pending_damage)
+    }
+
+    fn apply_tx_with_damage(&mut self, tx: &Transaction) -> Result<bool, EngineError> {
+        let mut touches_layout = false;
+        let mut touches_inputs = false;
+        for op in &tx.ops {
+            match op {
+                SheetOp::SetCellInput { .. } => touches_inputs = true,
+                SheetOp::SetFreezePane { .. }
+                | SheetOp::SetRowHeight { .. }
+                | SheetOp::SetColWidth { .. } => touches_layout = true,
+                SheetOp::SetCellStyle { .. } => {}
+            }
+        }
+
+        // Snapshot formula cell values before applying `SetCellInput` when formula count is bounded,
+        // so editing an unreferenced cell invalidates ONLY its single 64x16 tile (`M2-02`).
+        let formula_before = if touches_inputs && self.engine.has_formulas() {
+            self.snapshot_formula_values()
+        } else {
+            Some(Vec::new())
+        };
+
+        tx.apply(self.engine.as_mut())?;
+
+        for op in &tx.ops {
+            match op {
+                SheetOp::SetCellInput { sheet, coord, .. }
+                | SheetOp::SetCellStyle { sheet, coord, .. } => {
+                    self.pending_damage.push(SheetDamage::Cell {
+                        sheet: *sheet,
+                        coord: *coord,
+                    });
+                }
+                SheetOp::SetRowHeight { sheet, row, .. } => {
+                    self.pending_damage.push(SheetDamage::FromRow {
+                        sheet: *sheet,
+                        from_row: *row,
+                    });
+                }
+                SheetOp::SetColWidth { sheet, col, .. } => {
+                    self.pending_damage.push(SheetDamage::FromCol {
+                        sheet: *sheet,
+                        from_col: *col,
+                    });
+                }
+                SheetOp::SetFreezePane { .. } => {}
+            }
+        }
+
+        if touches_inputs {
+            match formula_before {
+                Some(snaps) => {
+                    for (sheet, coord, before_val) in snaps {
+                        if let Ok(after_val) = self.engine.cell_value(sheet, coord)
+                            && after_val != before_val
+                        {
+                            self.pending_damage.push(SheetDamage::Cell { sheet, coord });
+                        }
+                    }
+                }
+                None => self.pending_damage.push(SheetDamage::All),
+            }
+        }
+
+        Ok(touches_layout)
+    }
+
+    fn snapshot_formula_values(&self) -> Option<Vec<(u32, CellCoord, CellValue)>> {
+        let sheet_count = self.engine.sheet_count() as u32;
+        let mut out = Vec::new();
+        for sheet in 0..sheet_count {
+            let rem = FORMULA_DIFF_LIMIT.saturating_sub(out.len());
+            let coords = self.engine.formula_cells_bounded(sheet, rem).ok()??;
+            for coord in coords {
+                let val = self.engine.cell_value(sheet, coord).ok()?;
+                out.push((sheet, coord, val));
+            }
+        }
+        Some(out)
+    }
+
     /// Applies a [`Transaction`], records it on the undo stack, clears the redo stack, and bumps revisions.
     pub fn execute_transaction(&mut self, tx: Transaction) -> Result<(), EngineError> {
         if tx.ops.is_empty() {
             return Ok(());
         }
-        let touches_layout = tx.ops.iter().any(|op| {
-            matches!(
-                op,
-                SheetOp::SetFreezePane { .. }
-                    | SheetOp::SetRowHeight { .. }
-                    | SheetOp::SetColWidth { .. }
-            )
-        });
-        tx.apply(self.engine.as_mut())?;
+        let touches_layout = self.apply_tx_with_damage(&tx)?;
         self.expand_cached_used_range(&tx);
         self.undo_stack.push(tx);
         self.redo_stack.clear();
@@ -428,15 +574,7 @@ impl SheetDocument {
             return Ok(false);
         };
         let inv = tx.inverse();
-        let touches_layout = inv.ops.iter().any(|op| {
-            matches!(
-                op,
-                SheetOp::SetFreezePane { .. }
-                    | SheetOp::SetRowHeight { .. }
-                    | SheetOp::SetColWidth { .. }
-            )
-        });
-        inv.apply(self.engine.as_mut())?;
+        let touches_layout = self.apply_tx_with_damage(&inv)?;
         self.redo_stack.push(tx);
         self.dirty = !self.undo_stack.is_empty();
         self.revision += 1;
@@ -451,15 +589,7 @@ impl SheetDocument {
         let Some(tx) = self.redo_stack.pop() else {
             return Ok(false);
         };
-        let touches_layout = tx.ops.iter().any(|op| {
-            matches!(
-                op,
-                SheetOp::SetFreezePane { .. }
-                    | SheetOp::SetRowHeight { .. }
-                    | SheetOp::SetColWidth { .. }
-            )
-        });
-        tx.apply(self.engine.as_mut())?;
+        let touches_layout = self.apply_tx_with_damage(&tx)?;
         self.expand_cached_used_range(&tx);
         self.undo_stack.push(tx);
         self.dirty = true;

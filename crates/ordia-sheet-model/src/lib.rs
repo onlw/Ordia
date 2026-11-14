@@ -8,7 +8,7 @@ pub use clipboard::{
     ClipboardCell, ClipboardGrid, ClipboardPayload, export_range_clipboard,
     parse_clipboard_payload, parse_html_table, parse_tsv,
 };
-pub use document::SheetDocument;
+pub use document::{SheetDamage, SheetDocument};
 pub use ops::{SheetOp, Transaction};
 pub use ordia_core::{Document, DocumentError, DocumentKind, LoadProgress, LoadStage};
 

@@ -396,3 +396,88 @@ fn copy_and_paste_shortcut_preserves_values_bold_and_background_color(cx: &mut T
         );
     });
 }
+
+#[gpui_kit::test]
+fn tile_cache_single_cell_invalidation_and_scroll_p99_benchmark(cx: &mut TestAppContext) {
+    let (handle, view) = cx.update(|cx| {
+        gpui_kit::init(cx);
+        register_sheet_keybindings(cx);
+        let mut doc = SheetDocument::new_demo("TileCacheScroll.xlsx").expect("demo");
+        // Seed cells across multiple 64x16 tiles so scrolling visits populated cached tiles.
+        for r in (0..640_u32).step_by(8) {
+            doc.set_cell_input(CellCoord::new(r, 2), &format!("Item-{r}"))
+                .expect("seed cell");
+            doc.set_cell_input(CellCoord::new(r, 18), &format!("{}", r * 10))
+                .expect("seed right-tile cell");
+        }
+        let _ = doc.drain_damage();
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds::new(
+                    point(px(0.0), px(0.0)),
+                    size(px(1200.0), px(760.0)),
+                ))),
+                ..WindowOptions::default()
+            },
+            cx,
+            |window, cx| cx.new(|cx| SheetWorkspaceView::new(doc, window, cx)),
+        )
+        .expect("open window")
+    });
+
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        let (cached_before, _hits0, _misses0, inv0) = view.read(cx).tile_cache_stats();
+        assert!(
+            cached_before >= 4,
+            "expected initial visible + prefetch tiles"
+        );
+
+        // Changing selection must invalidate ZERO tiles (`PLAN.md` §4.3 separate selection layer).
+        view.update(cx, |state, cx| {
+            state.set_selection_range(CellCoord::new(0, 0), CellCoord::new(20, 8), cx);
+        });
+        window.render_frame(cx);
+        let (_len1, hits1, _misses1, inv1) = view.read(cx).tile_cache_stats();
+        assert_eq!(
+            inv1, inv0,
+            "selection changes must not invalidate content tiles"
+        );
+        assert!(hits1 > 0);
+
+        // Editing one unreferenced cell `D10` (`(9, 3)`) must invalidate ONLY 1 tile (`(0, 0, 0)`).
+        view.update(cx, |state, cx| {
+            state.begin_edit_existing(CellCoord::new(9, 3), window, cx);
+        });
+        window.render_frame(cx);
+        window.click("cell-inline-editor", cx);
+        window.input("EditedOnce", cx);
+        view.update(cx, |state, cx| {
+            state.commit_edit(true, window, cx);
+        });
+        window.render_frame(cx);
+        let (_len2, _hits2, _misses2, inv2) = view.read(cx).tile_cache_stats();
+        assert_eq!(
+            inv2 - inv1,
+            1,
+            "editing one cell must invalidate exactly 1 tile"
+        );
+
+        // Continuous 120-frame scroll benchmark recording P50 / P99 frame times.
+        view.update(cx, |state, _cx| state.reset_frame_stats());
+        for _ in 0..120 {
+            view.update(cx, |state, cx| {
+                state.scroll_by(12.0, 96.0, cx);
+            });
+            window.render_frame(cx);
+        }
+        let stats = view.read(cx).frame_stats();
+        assert_eq!(stats.total_frames, 120);
+        assert!(
+            stats.p99_ms < 25.0,
+            "expected smooth P99 scroll frame time < 25ms in debug headless test, got {:.2}ms",
+            stats.p99_ms
+        );
+    })
+    .expect("run tile cache invalidation and scroll P99 benchmark");
+}

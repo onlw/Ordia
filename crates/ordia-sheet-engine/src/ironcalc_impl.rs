@@ -415,6 +415,41 @@ impl SheetEngine for IronCalcEngine {
         Ok(coords)
     }
 
+    fn has_formulas(&self) -> bool {
+        self.model
+            .workbook
+            .worksheets
+            .iter()
+            .any(|ws| !ws.shared_formulas.is_empty())
+    }
+
+    fn formula_cells_bounded(
+        &self,
+        sheet: u32,
+        limit: usize,
+    ) -> Result<Option<Vec<CellCoord>>, EngineError> {
+        let ws_idx = self.check_sheet(sheet)?;
+        let ws = &self.model.workbook.worksheets[ws_idx];
+        if ws.shared_formulas.is_empty() {
+            return Ok(Some(Vec::new()));
+        }
+        let mut coords = Vec::new();
+        for (ic_row, ic_col, cell) in ws.sheet_data.cells() {
+            if matches!(
+                &*cell,
+                IcCell::CellFormula { .. } | IcCell::ArrayFormula { .. }
+            ) && ic_row >= 1
+                && ic_col >= 1
+            {
+                if coords.len() >= limit {
+                    return Ok(None);
+                }
+                coords.push(CellCoord::new((ic_row - 1) as u32, (ic_col - 1) as u32));
+            }
+        }
+        Ok(Some(coords))
+    }
+
     fn evaluate(&mut self) {
         self.model.evaluate();
         self.dirty_evaluation = false;

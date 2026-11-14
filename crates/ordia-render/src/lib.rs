@@ -143,6 +143,18 @@ pub enum FontWeight {
     Bold,
 }
 
+/// Horizontal alignment within an optional `max_width` text box for [`RenderCommand::DrawText`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum TextHAlign {
+    /// Align text flush with `origin.x`.
+    #[default]
+    Left,
+    /// Center text horizontally inside `[origin.x, origin.x + max_width]`.
+    Center,
+    /// Align text flush right at `origin.x + max_width`.
+    Right,
+}
+
 /// Text styling attributes for [`RenderCommand::DrawText`].
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TextRunStyle {
@@ -154,8 +166,20 @@ pub struct TextRunStyle {
     pub weight: FontWeight,
     /// Italic style flag.
     pub italic: bool,
+    /// Single underline flag.
+    #[serde(default)]
+    pub underline: bool,
+    /// Strikethrough flag.
+    #[serde(default)]
+    pub strikethrough: bool,
     /// Text fill color.
     pub color: Color,
+    /// Horizontal alignment when `max_width` is set.
+    #[serde(default)]
+    pub h_align: TextHAlign,
+    /// Optional layout box width for horizontal alignment (`Center` / `Right`).
+    #[serde(default)]
+    pub max_width: Option<f32>,
 }
 
 impl Default for TextRunStyle {
@@ -165,7 +189,11 @@ impl Default for TextRunStyle {
             font_size: 11.0,
             weight: FontWeight::Regular,
             italic: false,
+            underline: false,
+            strikethrough: false,
             color: Color::BLACK,
+            h_align: TextHAlign::Left,
+            max_width: None,
         }
     }
 }

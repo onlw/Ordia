@@ -90,6 +90,30 @@ pub trait SheetEngine: Send {
     /// Returns coordinates of all non-empty cells on `sheet` in row-major order.
     fn populated_cells(&self, sheet: u32) -> Result<Vec<CellCoord>, EngineError>;
 
+    /// Returns `true` if any worksheet in the workbook contains at least one formula cell.
+    fn has_formulas(&self) -> bool {
+        true
+    }
+
+    /// Returns coordinates of all formula cells on `sheet`, or `None` if formula count exceeds `limit`.
+    fn formula_cells_bounded(
+        &self,
+        sheet: u32,
+        limit: usize,
+    ) -> Result<Option<Vec<CellCoord>>, EngineError> {
+        let all = self.populated_cells(sheet)?;
+        let mut out = Vec::new();
+        for c in all {
+            if self.cell_formula(sheet, c)?.is_some() {
+                if out.len() >= limit {
+                    return Ok(None);
+                }
+                out.push(c);
+            }
+        }
+        Ok(Some(out))
+    }
+
     /// Evaluates all pending/dirty formulas and conditional formatting across the workbook.
     fn evaluate(&mut self);
 

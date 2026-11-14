@@ -19,9 +19,11 @@ use gpui_kit::{
     Render, ShapedLine, SharedString, StatefulInteractiveElement as _, Styled as _, Subscription,
     UTF16Selection, Window, div, px,
 };
+use ordia_render_gpui::ShapedTextCache;
 use ordia_sheet_layout::{
-    DEFAULT_COL_HEADER_HEIGHT_PX, DEFAULT_ROW_HEADER_WIDTH_PX, GridAxisIndex, LogicalRect,
-    ViewportGeometry,
+    CachedTile, DEFAULT_COL_HEADER_HEIGHT_PX, DEFAULT_ROW_HEADER_WIDTH_PX, GridAxisIndex,
+    LogicalRect, SheetTileCache, TileKey, TileRenderTheme, ViewportGeometry,
+    build_tile_display_list, plan_viewport_tiles,
 };
 use ordia_sheet_model::{
     CellCoord, CellRange, ClipboardPayload, FreezePane, MAX_COLS, MAX_ROWS, SheetDocument,
@@ -152,6 +154,9 @@ pub struct SheetWorkspaceView {
     formula_editor: Entity<InputState>,
     show_perf_overlay: bool,
     frame_tracker: FrameTimeTracker,
+    tile_cache: SheetTileCache,
+    tile_text_cache: ShapedTextCache,
+    last_tile_theme: Option<TileRenderTheme>,
     text_cache: ShapedLineCache,
     clipboard_bridge: Arc<dyn SheetClipboardBridge>,
     _subscriptions: Vec<Subscription>,
@@ -240,6 +245,9 @@ impl SheetWorkspaceView {
             formula_editor,
             show_perf_overlay: false,
             frame_tracker: FrameTimeTracker::new(),
+            tile_cache: SheetTileCache::default(),
+            tile_text_cache: ShapedTextCache::new(),
+            last_tile_theme: None,
             text_cache: ShapedLineCache::new(),
             clipboard_bridge: Arc::new(InMemoryClipboardBridge::default()),
             _subscriptions: vec![sub_cell, sub_formula],
@@ -321,6 +329,65 @@ impl SheetWorkspaceView {
     #[must_use]
     pub fn frame_stats(&self) -> FrameTimeSnapshot {
         self.frame_tracker.snapshot()
+    }
+
+    /// Returns `(cached_tiles, hits, misses, invalidations)` from the `64×16` `DisplayList` tile cache (`M2-02`).
+    #[must_use]
+    pub fn tile_cache_stats(&self) -> (usize, u64, u64, u64) {
+        (
+            self.tile_cache.len(),
+            self.tile_cache.hits(),
+            self.tile_cache.misses(),
+            self.tile_cache.invalidations(),
+        )
+    }
+
+    pub(crate) fn prepare_viewport_tiles(
+        &mut self,
+        geom: &ViewportGeometry,
+        theme: TileRenderTheme,
+    ) {
+        if self.last_tile_theme != Some(theme) {
+            self.tile_cache.clear();
+            self.last_tile_theme = Some(theme);
+        }
+        let damages = self.document.drain_damage();
+        if !damages.is_empty() {
+            self.tile_cache.apply_damage(&damages);
+        }
+        let sheet = self.document.active_sheet();
+        let plan = plan_viewport_tiles(sheet, geom, &self.row_index, &self.col_index);
+        for key in plan.visible {
+            let doc = &self.document;
+            let r_ix = &self.row_index;
+            let c_ix = &self.col_index;
+            let _ = self
+                .tile_cache
+                .get_or_build(key, |k| build_tile_display_list(doc, k, r_ix, c_ix, theme));
+        }
+        let mut warmed = 0usize;
+        for key in plan.prefetch {
+            if !self.tile_cache.contains(key) {
+                let doc = &self.document;
+                let r_ix = &self.row_index;
+                let c_ix = &self.col_index;
+                let _ = self
+                    .tile_cache
+                    .get_or_build(key, |k| build_tile_display_list(doc, k, r_ix, c_ix, theme));
+                warmed += 1;
+                if warmed >= 2 {
+                    break;
+                }
+            }
+        }
+    }
+
+    pub(crate) fn peek_cached_tile(&self, key: TileKey) -> Option<Arc<CachedTile>> {
+        self.tile_cache.peek(key).cloned()
+    }
+
+    pub(crate) fn tile_text_cache_mut(&mut self) -> &mut ShapedTextCache {
+        &mut self.tile_text_cache
     }
 
     /// Resets rolling frame-time samples before an isolated scroll benchmark.
