@@ -111,9 +111,9 @@ impl DesignGalleryView {
     fn render_theme_preview_card(tokens: &OrdiaTokens) -> impl IntoElement {
         let is_dark = tokens.mode.is_dark();
         let mode_title = if is_dark {
-            "Dark Theme Preview (Slate Chrome + Paper Canvas)"
+            ordia_i18n::t!("gallery.dark_preview_title")
         } else {
-            "Light Theme Preview (Zinc Chrome + Paper Canvas)"
+            ordia_i18n::t!("gallery.light_preview_title")
         };
         let card_id = if is_dark {
             "preview-dark"
@@ -161,7 +161,11 @@ impl DesignGalleryView {
                             .bg(tokens.colors.accent_subtle)
                             .text_size(tokens.typography.caption)
                             .text_color(tokens.colors.accent_foreground)
-                            .child(if is_dark { "DARK" } else { "LIGHT" }),
+                            .child(if is_dark {
+                                ordia_i18n::t!("gallery.badge_dark")
+                            } else {
+                                ordia_i18n::t!("gallery.badge_light")
+                            }),
                     ),
             )
             // Simulated compact toolbar strip in this theme's exact surface tokens
@@ -254,7 +258,7 @@ impl DesignGalleryView {
                         div()
                             .text_size(tokens.typography.base)
                             .text_color(OrdiaTokens::light().colors.foreground)
-                            .child("B4 · Spreadsheet Paper Canvas (Invariant #FFFFFF)"),
+                            .child(ordia_i18n::t!("gallery.paper_invariant_label")),
                     )
                     .child(
                         div()
@@ -303,16 +307,19 @@ impl Render for DesignGalleryView {
                                     div()
                                         .font_semibold()
                                         .text_size(active_tokens.typography.base)
-                                        .child("Ordia Design System Gallery"),
+                                        .child(ordia_i18n::t!("gallery.title")),
                                 ),
                         )
                         .child(
                             SegmentedControl::new("gallery-theme-mode")
                                 .option(SegmentOption::icon_and_label(
                                     OrdiaIcon::LightMode,
-                                    "Light",
+                                    ordia_i18n::t!("shell.theme_light"),
                                 ))
-                                .option(SegmentOption::icon_and_label(OrdiaIcon::DarkMode, "Dark"))
+                                .option(SegmentOption::icon_and_label(
+                                    OrdiaIcon::DarkMode,
+                                    ordia_i18n::t!("shell.theme_dark"),
+                                ))
                                 .selected_index(mode_ix)
                                 .on_select({
                                     let entity = entity.clone();
@@ -350,9 +357,7 @@ impl Render for DesignGalleryView {
                                 div()
                                     .font_semibold()
                                     .text_size(active_tokens.typography.md)
-                                    .child(
-                                        "Interactive Toolbar Components (ToolbarButton · ToolbarSelect · ToolbarColorPicker · SegmentedControl)",
-                                    ),
+                                    .child(ordia_i18n::t!("gallery.interactive_heading")),
                             )
                             .child(
                                 h_flex()
@@ -377,7 +382,7 @@ impl Render for DesignGalleryView {
                                     .child(
                                         ToolbarButton::new("gallery-btn-bold")
                                             .icon(OrdiaIcon::Bold)
-                                            .tooltip("Bold (Cmd/Ctrl+B)")
+                                            .tooltip(ordia_i18n::t!("toolbar.bold"))
                                             .selected(self.bold)
                                             .on_click({
                                                 let entity = entity.clone();
@@ -391,7 +396,7 @@ impl Render for DesignGalleryView {
                                     .child(
                                         ToolbarButton::new("gallery-btn-italic")
                                             .icon(OrdiaIcon::Italic)
-                                            .tooltip("Italic (Cmd/Ctrl+I)")
+                                            .tooltip(ordia_i18n::t!("toolbar.italic"))
                                             .selected(self.italic)
                                             .on_click({
                                                 let entity = entity.clone();
@@ -406,7 +411,7 @@ impl Render for DesignGalleryView {
                                     .child(
                                         ToolbarButton::new("gallery-btn-underline")
                                             .icon(OrdiaIcon::Underline)
-                                            .tooltip("Underline (Cmd/Ctrl+U)")
+                                            .tooltip(ordia_i18n::t!("toolbar.underline"))
                                             .selected(self.underline)
                                             .on_click({
                                                 let entity = entity.clone();
@@ -421,33 +426,33 @@ impl Render for DesignGalleryView {
                                     .child(
                                         ToolbarButton::new("gallery-btn-disabled")
                                             .icon(OrdiaIcon::Redo)
-                                            .label("Redo")
+                                            .label(ordia_i18n::t!("cmd.edit.redo"))
                                             .disabled(true)
-                                            .tooltip("Nothing to redo"),
+                                            .tooltip(ordia_i18n::t!("gallery.nothing_to_redo")),
                                     )
                                     .child(
                                         ToolbarColorPicker::new(&self.fill_color_picker)
                                             .icon(OrdiaIcon::FillColor)
-                                            .accessibility_label("Cell fill color"),
+                                            .accessibility_label(ordia_i18n::t!("toolbar.fill_color")),
                                     )
                                     .child(
                                         ToolbarColorPicker::new(&self.text_color_picker)
                                             .icon(OrdiaIcon::TextColor)
-                                            .accessibility_label("Cell text color"),
+                                            .accessibility_label(ordia_i18n::t!("toolbar.text_color")),
                                     )
                                     .child(
                                         SegmentedControl::new("gallery-alignment")
                                             .option(SegmentOption::icon(
                                                 OrdiaIcon::AlignLeft,
-                                                "Align left",
+                                                ordia_i18n::t!("toolbar.align_left"),
                                             ))
                                             .option(SegmentOption::icon(
                                                 OrdiaIcon::AlignCenter,
-                                                "Align center",
+                                                ordia_i18n::t!("toolbar.align_center"),
                                             ))
                                             .option(SegmentOption::icon(
                                                 OrdiaIcon::AlignRight,
-                                                "Align right",
+                                                ordia_i18n::t!("toolbar.align_right"),
                                             ))
                                             .selected_index(self.alignment_ix)
                                             .on_select({
@@ -495,9 +500,9 @@ impl Render for DesignGalleryView {
                                 div()
                                     .font_semibold()
                                     .text_size(active_tokens.typography.md)
-                                    .child(SharedString::from(format!(
-                                        "Ordia Semantic Icons ({} Lucide glyphs)",
-                                        OrdiaIcon::ALL.len()
+                                    .child(SharedString::from(ordia_i18n::t!(
+                                        "gallery.icons_heading",
+                                        "count" => OrdiaIcon::ALL.len().to_string()
                                     ))),
                             )
                             .child(

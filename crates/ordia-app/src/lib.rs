@@ -179,17 +179,17 @@ impl MainWindow {
             RecentFileEntry::new(
                 "m0_budget_sample.xlsx",
                 PathBuf::from("corpus/public/m0_budget_sample.xlsx"),
-                "Sample workbook",
+                ordia_i18n::t!("shell.recent_sample_workbook"),
             ),
             RecentFileEntry::new(
                 "m0_pivot_table.xlsx",
                 PathBuf::from("corpus/public/m0_pivot_table.xlsx"),
-                "PivotTable preservation sample",
+                ordia_i18n::t!("shell.recent_pivot_sample"),
             ),
             RecentFileEntry::new(
                 "m0_complex_chart.xlsx",
                 PathBuf::from("corpus/public/m0_complex_chart.xlsx"),
-                "Chart sample",
+                ordia_i18n::t!("shell.recent_chart_sample"),
             ),
         ]
     }
@@ -207,17 +207,17 @@ impl MainWindow {
             WorkbookTab::new(
                 1,
                 "Budget_2026.xlsx",
-                "12 sheets · Financial forecast & monthly variance",
+                ordia_i18n::t!("shell.summary_demo_budget"),
             ),
             WorkbookTab::new(
                 2,
                 "Sales_Pipeline.xlsx",
-                "4 sheets · Regional quarterly revenue breakdown",
+                ordia_i18n::t!("shell.summary_demo_sales"),
             ),
             WorkbookTab::new(
                 3,
                 "Inventory.csv",
-                "100,000 rows · Warehouse SKU stock snapshot",
+                ordia_i18n::t!("shell.summary_demo_inventory"),
             ),
         ];
 
@@ -290,8 +290,8 @@ impl MainWindow {
         let palette_state = cx.new(|cx| CommandState::new(window, cx));
 
         let title = doc.title().to_string();
-        let sheet_count = doc.sheet_count();
-        let summary = format!("{sheet_count} sheet(s) · Local workbook");
+        let sheet_count = doc.sheet_count().to_string();
+        let summary = ordia_i18n::t!("shell.summary_local_sheets", "count" => sheet_count);
         let tabs = vec![WorkbookTab::new(1, title, summary)];
         let cb = platform::system_clipboard_bridge();
         let sheet_views = vec![cx.new(|cx| {
@@ -488,7 +488,7 @@ impl MainWindow {
         let title = format!("Book{id}.xlsx");
         let doc = SheetDocument::new_empty(&title).expect("initialize empty workbook tab");
         self.push_document_tab(
-            WorkbookTab::new(id, title, "1 sheet · Empty workbook"),
+            WorkbookTab::new(id, title, ordia_i18n::t!("shell.summary_empty_workbook")),
             doc,
             window,
             cx,
@@ -538,11 +538,11 @@ impl MainWindow {
             .expect("open recent or demo workbook");
         let id = self.next_tab_id;
         self.next_tab_id += 1;
-        let sheet_count = doc.sheet_count();
+        let sheet_count = doc.sheet_count().to_string();
         let tab = WorkbookTab::new(
             id,
             title.to_string(),
-            format!("{sheet_count} sheet(s) · Local workbook"),
+            ordia_i18n::t!("shell.summary_local_sheets", "count" => sheet_count),
         )
         .with_path(path.to_path_buf());
         self.push_document_tab(tab, doc, window, cx);
@@ -564,16 +564,22 @@ impl MainWindow {
             if let Ok(doc) = SheetDocument::open_xlsx(path) {
                 let id = self.next_tab_id;
                 self.next_tab_id += 1;
-                let sheet_count = doc.sheet_count();
+                let sheet_count = doc.sheet_count().to_string();
                 let tab = WorkbookTab::new(
                     id,
                     file_name.clone(),
-                    format!("{sheet_count} sheet(s) · Local workbook"),
+                    ordia_i18n::t!("shell.summary_local_sheets", "count" => sheet_count),
                 )
                 .with_path(path.clone());
                 self.recent_files.retain(|r| r.path() != path);
-                self.recent_files
-                    .insert(0, RecentFileEntry::new(file_name, path.clone(), "Just now"));
+                self.recent_files.insert(
+                    0,
+                    RecentFileEntry::new(
+                        file_name,
+                        path.clone(),
+                        ordia_i18n::t!("shell.recent_just_now"),
+                    ),
+                );
                 self.push_document_tab(tab, doc, window, cx);
             }
         }

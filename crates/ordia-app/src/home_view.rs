@@ -46,15 +46,13 @@ impl MainWindow {
                                             .font_semibold()
                                             .text_size(tokens.typography.lg)
                                             .text_color(cx.theme().foreground)
-                                            .child("Welcome to Ordia Sheets"),
+                                            .child(ordia_i18n::t!("home.welcome_title")),
                                     )
                                     .child(
                                         div()
                                             .text_size(tokens.typography.sm)
                                             .text_color(cx.theme().muted_foreground)
-                                            .child(
-                                                "Create a blank workbook, start from a template, or drop an .xlsx / .csv file below.",
-                                            ),
+                                            .child(ordia_i18n::t!("home.welcome_subtitle")),
                                     ),
                             )
                             .child(
@@ -62,7 +60,7 @@ impl MainWindow {
                                     .primary()
                                     .small()
                                     .icon(Icon::new(OrdiaIcon::Add))
-                                    .label("New Workbook")
+                                    .label(ordia_i18n::t!("home.new_workbook"))
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.add_workbook_tab(window, cx);
                                     })),
@@ -75,8 +73,8 @@ impl MainWindow {
                             .gap(tokens.spacing.md)
                             .child(Self::render_template_card(
                                 "home-card-blank",
-                                "Blank Workbook",
-                                "Empty 1,048,576 × 16,384 sheet",
+                                ordia_i18n::t!("home.tpl_blank_title"),
+                                ordia_i18n::t!("home.tpl_blank_subtitle"),
                                 OrdiaIcon::Add,
                                 &tokens,
                                 cx,
@@ -91,8 +89,8 @@ impl MainWindow {
                             ))
                             .child(Self::render_template_card(
                                 "home-card-budget",
-                                "Personal Budget 2026",
-                                "Monthly forecast, categories & SUM formulas",
+                                ordia_i18n::t!("home.tpl_budget_title"),
+                                ordia_i18n::t!("home.tpl_budget_subtitle"),
                                 OrdiaIcon::Spreadsheet,
                                 &tokens,
                                 cx,
@@ -102,7 +100,7 @@ impl MainWindow {
                                         entity.update(cx, |this, cx| {
                                             this.open_demo_template(
                                                 "Budget_2026.xlsx",
-                                                "Financial forecast & monthly variance",
+                                                ordia_i18n::t!("home.tpl_budget_summary"),
                                                 window,
                                                 cx,
                                             );
@@ -112,8 +110,8 @@ impl MainWindow {
                             ))
                             .child(Self::render_template_card(
                                 "home-card-sales",
-                                "Sales Pipeline Tracker",
-                                "Regional quarterly revenue breakdown",
+                                ordia_i18n::t!("home.tpl_sales_title"),
+                                ordia_i18n::t!("home.tpl_sales_subtitle"),
                                 OrdiaIcon::Chart,
                                 &tokens,
                                 cx,
@@ -123,7 +121,7 @@ impl MainWindow {
                                         entity.update(cx, |this, cx| {
                                             this.open_demo_template(
                                                 "Sales_Pipeline.xlsx",
-                                                "Quarterly revenue breakdown",
+                                                ordia_i18n::t!("home.tpl_sales_summary"),
                                                 window,
                                                 cx,
                                             );
@@ -159,13 +157,13 @@ impl MainWindow {
                         div()
                             .font_medium()
                             .text_size(tokens.typography.base)
-                            .child("Drop .xlsx, .xlsm, or .csv files anywhere to open"),
+                            .child(ordia_i18n::t!("home.drop_title")),
                     )
                     .child(
                         div()
                             .text_size(tokens.typography.caption)
                             .text_color(cx.theme().muted_foreground)
-                            .child("Unknown PivotTables, macros, and slicers are preserved lossless on save"),
+                            .child(ordia_i18n::t!("home.drop_subtitle")),
                     ),
             )
             // Recent Files list
@@ -176,7 +174,7 @@ impl MainWindow {
                         div()
                             .font_semibold()
                             .text_size(tokens.typography.md)
-                            .child("Recent Workbooks"),
+                            .child(ordia_i18n::t!("home.recent_heading")),
                     )
                     .children(self.recent_files().iter().enumerate().map(|(ix, entry)| {
                         let path = entry.path().clone();
@@ -229,13 +227,10 @@ impl MainWindow {
                                 Button::new(open_btn_id)
                                     .ghost()
                                     .xsmall()
-                                    .label("Open")
+                                    .label(ordia_i18n::t!("home.open_btn"))
                                     .on_click(cx.listener(move |this, _, window, cx| {
                                         this.open_recent_or_demo_entry(
-                                            &title_btn,
-                                            &path_btn,
-                                            window,
-                                            cx,
+                                            &title_btn, &path_btn, window, cx,
                                         );
                                     })),
                             )

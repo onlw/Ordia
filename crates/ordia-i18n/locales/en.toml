@@ -1,0 +1,122 @@
+[app]
+name = "Ordia"
+sheets_title = "Ordia Sheets"
+workspace = "Workspace"
+local_offline = "Local-first · Offline"
+
+[menu]
+app = "Ordia"
+file = "File"
+edit = "Edit"
+view = "View"
+help = "Help"
+
+[cmd.app]
+quit = "Quit Ordia"
+
+[cmd.file]
+save = "Save"
+new_workbook = "New Workbook"
+new_window = "New Window"
+close_tab = "Close Tab"
+
+[cmd.edit]
+undo = "Undo"
+redo = "Redo"
+
+[cmd.view]
+command_palette = "Command Palette"
+home = "Home"
+toggle_inspector = "Toggle Property Inspector"
+toggle_sidebar = "Toggle Navigation Sidebar"
+toggle_theme = "Switch Appearance"
+
+[shell]
+nav_group = "Navigation"
+nav_recent = "Recent"
+nav_templates = "Templates"
+nav_settings = "Settings"
+close_tab = "Close tab"
+home_tooltip = "Home (Recent & Templates)"
+new_workbook_tooltip = "New workbook (Cmd/Ctrl+T)"
+command_palette_btn = "Cmd+K"
+command_palette_tooltip = "Command Palette (Cmd/Ctrl+K)"
+new_window_tooltip = "New window (Cmd/Ctrl+Shift+N)"
+theme_light = "Light"
+theme_dark = "Dark"
+summary_local_sheets = "{count} sheet(s) · Local workbook"
+summary_empty_workbook = "1 sheet · Empty workbook"
+summary_demo_budget = "12 sheets · Financial forecast & monthly variance"
+summary_demo_sales = "4 sheets · Regional quarterly revenue breakdown"
+summary_demo_inventory = "100,000 rows · Warehouse SKU stock snapshot"
+recent_sample_workbook = "Sample workbook"
+recent_pivot_sample = "PivotTable preservation sample"
+recent_chart_sample = "Chart sample"
+recent_just_now = "Just now"
+
+[home]
+welcome_title = "Welcome to Ordia Sheets"
+welcome_subtitle = "Create a blank workbook, start from a template, or drop an .xlsx / .csv file below."
+new_workbook = "New Workbook"
+tpl_blank_title = "Blank Workbook"
+tpl_blank_subtitle = "Empty 1,048,576 × 16,384 sheet"
+tpl_budget_title = "Personal Budget 2026"
+tpl_budget_subtitle = "Monthly forecast, categories & SUM formulas"
+tpl_budget_summary = "Financial forecast & monthly variance"
+tpl_sales_title = "Sales Pipeline Tracker"
+tpl_sales_subtitle = "Regional quarterly revenue breakdown"
+tpl_sales_summary = "Quarterly revenue breakdown"
+drop_title = "Drop .xlsx, .xlsm, or .csv files anywhere to open"
+drop_subtitle = "Unknown PivotTables, macros, and slicers are preserved lossless on save"
+recent_heading = "Recent Workbooks"
+open_btn = "Open"
+
+[toolbar]
+bold = "Bold (Cmd/Ctrl+B)"
+italic = "Italic (Cmd/Ctrl+I)"
+underline = "Underline (Cmd/Ctrl+U)"
+fill_color = "Cell fill color"
+text_color = "Cell text color"
+align_left = "Align left"
+align_center = "Align center"
+align_right = "Align right"
+insert_formula = "Insert function"
+insert_chart = "Insert chart"
+toggle_inspector = "Toggle property inspector"
+
+[inspector]
+title = "Properties"
+close = "Close inspector"
+no_workbook = "No workbook"
+empty_hint = "Select a cell or object to inspect properties"
+active_selection = "Active Selection"
+sections_heading = "SECTIONS"
+sec_cell_align = "Cell & Alignment"
+sec_number_format = "Number Format"
+sec_conditional = "Conditional Rules"
+sec_chart = "Chart"
+
+[status]
+home_ready = "Home · Ready"
+ready = "Ready"
+recent_count = "{count} recent workbooks"
+active_cell_ready = "Active {cell} · Ready"
+
+[palette]
+placeholder = "Search commands or type Pinyin initials (e.g. bc)..."
+
+[sheet]
+toggle_perf_overlay = "Toggle frame-time overlay (F12)"
+modified = "Modified"
+saved = "Saved"
+
+[gallery]
+title = "Ordia Design System Gallery"
+interactive_heading = "Interactive Toolbar Components (ToolbarButton · ToolbarSelect · ToolbarColorPicker · SegmentedControl)"
+nothing_to_redo = "Nothing to redo"
+dark_preview_title = "Dark Theme Preview (Slate Chrome + Paper Canvas)"
+light_preview_title = "Light Theme Preview (Zinc Chrome + Paper Canvas)"
+badge_dark = "DARK"
+badge_light = "LIGHT"
+paper_invariant_label = "B4 · Spreadsheet Paper Canvas (Invariant #FFFFFF)"
+icons_heading = "Ordia Semantic Icons ({count} Lucide glyphs)"

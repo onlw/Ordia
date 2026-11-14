@@ -1,5 +1,7 @@
 //! Workspace automation CLI (`cargo xtask`) for Ordia.
 
+mod i18n_check;
+
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -219,19 +221,7 @@ fn run_bench(root: &Path, suite: &str) -> Result<()> {
 }
 
 fn run_i18n_check(root: &Path) -> Result<()> {
-    let locales_dir = root.join("crates/ordia-i18n/locales");
-    if !locales_dir.exists() {
-        return Ok(());
-    }
-    let zh = locales_dir.join("zh-CN.toml");
-    let en = locales_dir.join("en.toml");
-    if !zh.exists() || !en.exists() {
-        bail!(
-            "missing locale files in {}: expected both zh-CN.toml and en.toml",
-            locales_dir.display()
-        );
-    }
-    Ok(())
+    i18n_check::run(root)
 }
 
 fn run_check_deps(root: &Path) -> Result<()> {

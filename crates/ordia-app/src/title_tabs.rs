@@ -30,7 +30,11 @@ impl MainWindow {
         } else {
             IconName::Moon
         };
-        let theme_label = if is_dark { "Light" } else { "Dark" };
+        let theme_label = if is_dark {
+            ordia_i18n::t!("shell.theme_light")
+        } else {
+            ordia_i18n::t!("shell.theme_dark")
+        };
         let tokens = OrdiaTokens::for_mode(cx.theme().mode);
         let entity = cx.entity();
 
@@ -112,7 +116,7 @@ impl MainWindow {
                             .xsmall()
                             .compact()
                             .icon(IconName::Close)
-                            .tooltip("Close tab")
+                            .tooltip(ordia_i18n::t!("shell.close_tab"))
                             .on_click({
                                 let entity = entity.clone();
                                 move |_, window, cx| {
@@ -151,7 +155,7 @@ impl MainWindow {
                                 .ghost()
                                 .small()
                                 .label(crate::app_name())
-                                .tooltip("Home (Recent & Templates)")
+                                .tooltip(ordia_i18n::t!("shell.home_tooltip"))
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.show_home_screen(cx);
                                 })),
@@ -170,7 +174,7 @@ impl MainWindow {
                                         .ghost()
                                         .xsmall()
                                         .icon(IconName::Plus)
-                                        .tooltip("New workbook (Cmd/Ctrl+T)")
+                                        .tooltip(ordia_i18n::t!("shell.new_workbook_tooltip"))
                                         .on_click(cx.listener(|this, _, window, cx| {
                                             this.add_workbook_tab(window, cx);
                                         })),
@@ -186,8 +190,8 @@ impl MainWindow {
                                 .ghost()
                                 .small()
                                 .icon(Icon::new(OrdiaIcon::CommandPalette))
-                                .label("Cmd+K")
-                                .tooltip("Command Palette (Cmd/Ctrl+K)")
+                                .label(ordia_i18n::t!("shell.command_palette_btn"))
+                                .tooltip(ordia_i18n::t!("shell.command_palette_tooltip"))
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.open_command_palette(window, cx);
                                 })),
@@ -197,7 +201,7 @@ impl MainWindow {
                                 .ghost()
                                 .xsmall()
                                 .icon(Icon::new(OrdiaIcon::Open))
-                                .tooltip("New window (Cmd/Ctrl+Shift+N)")
+                                .tooltip(ordia_i18n::t!("shell.new_window_tooltip"))
                                 .on_click(|_, _, cx| {
                                     let _ = crate::MainWindow::open(cx);
                                 }),
@@ -243,20 +247,25 @@ impl MainWindow {
                                 .flex_1()
                                 .min_w_0()
                                 .overflow_hidden()
-                                .child(div().text_sm().font_semibold().child("Ordia Sheets"))
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .font_semibold()
+                                        .child(ordia_i18n::t!("app.sheets_title")),
+                                )
                                 .child(
                                     div()
                                         .text_xs()
                                         .text_color(cx.theme().muted_foreground)
-                                        .child("Workspace"),
+                                        .child(ordia_i18n::t!("app.workspace")),
                                 ),
                         )
                     }),
             )
             .child(
-                SidebarGroup::new("Navigation").child(
+                SidebarGroup::new(ordia_i18n::t!("shell.nav_group")).child(
                     SidebarMenu::new().children([
-                        SidebarMenuItem::new("Recent")
+                        SidebarMenuItem::new(ordia_i18n::t!("shell.nav_recent"))
                             .icon(IconName::FileText)
                             .active(active == SidebarSection::Recent)
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -264,7 +273,7 @@ impl MainWindow {
                                 this.show_home = true;
                                 cx.notify();
                             })),
-                        SidebarMenuItem::new("Templates")
+                        SidebarMenuItem::new(ordia_i18n::t!("shell.nav_templates"))
                             .icon(IconName::Folder)
                             .active(active == SidebarSection::Templates)
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -272,7 +281,7 @@ impl MainWindow {
                                 this.show_home = true;
                                 cx.notify();
                             })),
-                        SidebarMenuItem::new("Settings")
+                        SidebarMenuItem::new(ordia_i18n::t!("shell.nav_settings"))
                             .icon(IconName::Settings)
                             .active(active == SidebarSection::Settings)
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -289,7 +298,9 @@ impl MainWindow {
                         .text_xs()
                         .text_color(cx.theme().muted_foreground)
                         .child(Icon::new(IconName::HardDrive).small())
-                        .when(!collapsed, |row| row.child("Local-first · Offline")),
+                        .when(!collapsed, |row| {
+                            row.child(ordia_i18n::t!("app.local_offline"))
+                        }),
                 ),
             )
     }

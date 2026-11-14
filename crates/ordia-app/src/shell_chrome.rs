@@ -79,34 +79,43 @@ impl MainWindow {
                     .child(
                         ToolbarButton::new("toolbar-bold")
                             .icon(OrdiaIcon::Bold)
-                            .tooltip("Bold (Cmd/Ctrl+B)"),
+                            .tooltip(ordia_i18n::t!("toolbar.bold")),
                     )
                     .child(
                         ToolbarButton::new("toolbar-italic")
                             .icon(OrdiaIcon::Italic)
-                            .tooltip("Italic (Cmd/Ctrl+I)"),
+                            .tooltip(ordia_i18n::t!("toolbar.italic")),
                     )
                     .child(
                         ToolbarButton::new("toolbar-underline")
                             .icon(OrdiaIcon::Underline)
-                            .tooltip("Underline (Cmd/Ctrl+U)"),
+                            .tooltip(ordia_i18n::t!("toolbar.underline")),
                     )
                     .child(
                         ToolbarColorPicker::new(&self.toolbar_fill_picker)
                             .icon(OrdiaIcon::FillColor)
-                            .accessibility_label("Cell fill color"),
+                            .accessibility_label(ordia_i18n::t!("toolbar.fill_color")),
                     )
                     .child(
                         ToolbarColorPicker::new(&self.toolbar_text_picker)
                             .icon(OrdiaIcon::TextColor)
-                            .accessibility_label("Cell text color"),
+                            .accessibility_label(ordia_i18n::t!("toolbar.text_color")),
                     )
                     .child(Self::toolbar_divider(cx))
                     .child(
                         SegmentedControl::new("toolbar-align")
-                            .option(SegmentOption::icon(OrdiaIcon::AlignLeft, "Align left"))
-                            .option(SegmentOption::icon(OrdiaIcon::AlignCenter, "Align center"))
-                            .option(SegmentOption::icon(OrdiaIcon::AlignRight, "Align right"))
+                            .option(SegmentOption::icon(
+                                OrdiaIcon::AlignLeft,
+                                ordia_i18n::t!("toolbar.align_left"),
+                            ))
+                            .option(SegmentOption::icon(
+                                OrdiaIcon::AlignCenter,
+                                ordia_i18n::t!("toolbar.align_center"),
+                            ))
+                            .option(SegmentOption::icon(
+                                OrdiaIcon::AlignRight,
+                                ordia_i18n::t!("toolbar.align_right"),
+                            ))
                             .selected_index(self.toolbar_align_ix)
                             .on_select({
                                 let entity = entity.clone();
@@ -122,19 +131,19 @@ impl MainWindow {
                     .child(
                         ToolbarButton::new("toolbar-formula")
                             .icon(OrdiaIcon::Formula)
-                            .tooltip("Insert function"),
+                            .tooltip(ordia_i18n::t!("toolbar.insert_formula")),
                     )
                     .child(
                         ToolbarButton::new("toolbar-chart")
                             .icon(OrdiaIcon::Chart)
-                            .tooltip("Insert chart"),
+                            .tooltip(ordia_i18n::t!("toolbar.insert_chart")),
                     ),
             )
             .child(
                 ToolbarButton::new("toggle-inspector")
                     .icon(OrdiaIcon::Inspector)
                     .selected(self.is_inspector_open())
-                    .tooltip("Toggle property inspector")
+                    .tooltip(ordia_i18n::t!("toolbar.toggle_inspector"))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.toggle_inspector(cx);
                     })),
@@ -151,11 +160,11 @@ impl MainWindow {
         let tab_title = self
             .active_tab()
             .map(|t| t.title().clone())
-            .unwrap_or_else(|| SharedString::from("No workbook"));
+            .unwrap_or_else(|| SharedString::from(ordia_i18n::t!("inspector.no_workbook")));
         let tab_summary = self
             .active_tab()
             .map(|t| t.summary().clone())
-            .unwrap_or_else(|| SharedString::from("Select a cell or object to inspect properties"));
+            .unwrap_or_else(|| SharedString::from(ordia_i18n::t!("inspector.empty_hint")));
 
         let active_addr = self
             .active_sheet_view()
@@ -180,12 +189,12 @@ impl MainWindow {
                         div()
                             .font_semibold()
                             .text_size(tokens.typography.base)
-                            .child("Properties"),
+                            .child(ordia_i18n::t!("inspector.title")),
                     )
                     .child(
                         ToolbarButton::new("close-inspector")
                             .icon(OrdiaIcon::Close)
-                            .tooltip("Close inspector")
+                            .tooltip(ordia_i18n::t!("inspector.close"))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.toggle_inspector(cx);
                             })),
@@ -201,7 +210,7 @@ impl MainWindow {
                         div()
                             .text_size(tokens.typography.caption)
                             .text_color(cx.theme().muted_foreground)
-                            .child("Active Selection"),
+                            .child(ordia_i18n::t!("inspector.active_selection")),
                     )
                     .child(
                         div()
@@ -225,14 +234,14 @@ impl MainWindow {
                             .text_size(tokens.typography.caption)
                             .font_medium()
                             .text_color(cx.theme().muted_foreground)
-                            .child("SECTIONS"),
+                            .child(ordia_i18n::t!("inspector.sections_heading")),
                     )
                     .children(
                         [
-                            "Cell & Alignment",
-                            "Number Format",
-                            "Conditional Rules",
-                            "Chart",
+                            ordia_i18n::t!("inspector.sec_cell_align"),
+                            ordia_i18n::t!("inspector.sec_number_format"),
+                            ordia_i18n::t!("inspector.sec_conditional"),
+                            ordia_i18n::t!("inspector.sec_chart"),
                         ]
                         .into_iter()
                         .map(|sec| {
@@ -253,18 +262,19 @@ impl MainWindow {
     /// Renders the bottom status bar (`PLAN.md` §5.1).
     pub(crate) fn render_status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let left_status = if self.is_showing_home() {
-            SharedString::from("Home · Ready")
+            SharedString::from(ordia_i18n::t!("status.home_ready"))
         } else if let Some(tab) = self.active_tab() {
             SharedString::from(format!("{} · {}", tab.title(), tab.summary()))
         } else {
-            SharedString::from("Ready")
+            SharedString::from(ordia_i18n::t!("status.ready"))
         };
 
         let center_stats = if self.is_showing_home() {
-            SharedString::from(format!("{} recent workbooks", self.recent_files().len()))
+            let count_str = self.recent_files().len().to_string();
+            SharedString::from(ordia_i18n::t!("status.recent_count", "count" => count_str))
         } else if let Some(sheet) = self.active_sheet_view() {
-            let coord = sheet.read(cx).document().active_cell();
-            SharedString::from(format!("Active {} · Ready", coord.to_a1()))
+            let coord = sheet.read(cx).document().active_cell().to_a1();
+            SharedString::from(ordia_i18n::t!("status.active_cell_ready", "cell" => coord))
         } else {
             SharedString::from("")
         };
@@ -323,9 +333,7 @@ impl MainWindow {
                     .child(
                         Command::new(&self.palette_state)
                             .filterable(false)
-                            .placeholder(
-                                "Search commands or type Pinyin initials (e.g. bc → 保存)…",
-                            )
+                            .placeholder(ordia_i18n::t!("palette.placeholder"))
                             .items(items)
                             .on_query({
                                 let entity = entity.clone();

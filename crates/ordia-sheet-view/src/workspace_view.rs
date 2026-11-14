@@ -756,7 +756,7 @@ impl SheetWorkspaceView {
                     .ghost()
                     .xsmall()
                     .icon(IconName::ChartPie)
-                    .tooltip("Toggle frame-time overlay (F12)")
+                    .tooltip(ordia_i18n::t!("sheet.toggle_perf_overlay"))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.toggle_perf_overlay(cx);
                     })),
@@ -852,9 +852,9 @@ impl SheetWorkspaceView {
             .cell_display_text(self.document.active_cell())
             .unwrap_or_default();
         let dirty_tag = if self.document.is_dirty() {
-            "Modified"
+            ordia_i18n::t!("sheet.modified")
         } else {
-            "Saved"
+            ordia_i18n::t!("sheet.saved")
         };
         let status_label = SharedString::from(format!(
             "{} = {} · {}",

@@ -1,0 +1,122 @@
+[app]
+name = "Ordia"
+sheets_title = "Ordia 表格"
+workspace = "工作区"
+local_offline = "本地优先 · 离线可用"
+
+[menu]
+app = "Ordia"
+file = "文件"
+edit = "编辑"
+view = "视图"
+help = "帮助"
+
+[cmd.app]
+quit = "退出 Ordia"
+
+[cmd.file]
+save = "保存"
+new_workbook = "新建工作簿"
+new_window = "新建窗口"
+close_tab = "关闭标签页"
+
+[cmd.edit]
+undo = "撤销"
+redo = "重做"
+
+[cmd.view]
+command_palette = "命令面板"
+home = "首页"
+toggle_inspector = "切换属性面板"
+toggle_sidebar = "切换导航侧边栏"
+toggle_theme = "切换外观"
+
+[shell]
+nav_group = "导航"
+nav_recent = "最近文件"
+nav_templates = "模板库"
+nav_settings = "设置"
+close_tab = "关闭标签页"
+home_tooltip = "首页（最近文件与模板）"
+new_workbook_tooltip = "新建工作簿 (Cmd/Ctrl+T)"
+command_palette_btn = "Cmd+K"
+command_palette_tooltip = "命令面板 (Cmd/Ctrl+K)"
+new_window_tooltip = "新建窗口 (Cmd/Ctrl+Shift+N)"
+theme_light = "亮色"
+theme_dark = "暗色"
+summary_local_sheets = "{count} 个工作表 · 本地工作簿"
+summary_empty_workbook = "1 个工作表 · 空白工作簿"
+summary_demo_budget = "12 个工作表 · 财务预算与月度差异"
+summary_demo_sales = "4 个工作表 · 大区季度营收拆分"
+summary_demo_inventory = "100,000 行 · 仓库 SKU 库存快照"
+recent_sample_workbook = "示例工作簿"
+recent_pivot_sample = "数据透视表无损保留示例"
+recent_chart_sample = "图表示例"
+recent_just_now = "刚刚"
+
+[home]
+welcome_title = "欢迎使用 Ordia 表格"
+welcome_subtitle = "创建空白工作簿、从模板开始，或将 .xlsx / .csv 文件拖放到下方打开。"
+new_workbook = "新建工作簿"
+tpl_blank_title = "空白工作簿"
+tpl_blank_subtitle = "1,048,576 × 16,384 标准表格"
+tpl_budget_title = "2026 年度预算表"
+tpl_budget_subtitle = "月度预测、科目汇总与 SUM 公式"
+tpl_budget_summary = "财务预测与月度差异"
+tpl_sales_title = "销售漏斗追踪"
+tpl_sales_subtitle = "分区域季度营收拆解"
+tpl_sales_summary = "季度营收拆解"
+drop_title = "将 .xlsx、.xlsm 或 .csv 文件拖放到此处即可打开"
+drop_subtitle = "保存时完整无损保留未知的数据透视表、宏与切片器"
+recent_heading = "最近打开的工作簿"
+open_btn = "打开"
+
+[toolbar]
+bold = "加粗 (Cmd/Ctrl+B)"
+italic = "斜体 (Cmd/Ctrl+I)"
+underline = "下划线 (Cmd/Ctrl+U)"
+fill_color = "单元格填充颜色"
+text_color = "单元格文字颜色"
+align_left = "左对齐"
+align_center = "居中对齐"
+align_right = "右对齐"
+insert_formula = "插入函数"
+insert_chart = "插入图表"
+toggle_inspector = "切换属性面板"
+
+[inspector]
+title = "属性"
+close = "关闭属性面板"
+no_workbook = "未打开工作簿"
+empty_hint = "选择单元格或对象以查看属性"
+active_selection = "当前选区"
+sections_heading = "属性分组"
+sec_cell_align = "单元格与对齐"
+sec_number_format = "数字格式"
+sec_conditional = "条件格式规则"
+sec_chart = "图表"
+
+[status]
+home_ready = "首页 · 就绪"
+ready = "就绪"
+recent_count = "{count} 个最近工作簿"
+active_cell_ready = "当前 {cell} · 就绪"
+
+[palette]
+placeholder = "搜索命令或输入拼音首字母（如 bc 搜索保存）…"
+
+[sheet]
+toggle_perf_overlay = "切换帧耗时面板 (F12)"
+modified = "已修改"
+saved = "已保存"
+
+[gallery]
+title = "Ordia 设计系统组件展厅"
+interactive_heading = "可交互工具栏组件 (ToolbarButton · ToolbarSelect · ToolbarColorPicker · SegmentedControl)"
+nothing_to_redo = "没有可重做的操作"
+dark_preview_title = "暗色主题预览（Slate 壳层 + 纸白画布）"
+light_preview_title = "亮色主题预览（Zinc 壳层 + 纸白画布）"
+badge_dark = "暗色"
+badge_light = "亮色"
+paper_invariant_label = "B4 · 表格纸白画布（恒定 #FFFFFF）"
+icons_heading = "Ordia 语义图标（共 {count} 枚 Lucide 图标）"

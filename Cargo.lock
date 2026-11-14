@@ -5370,6 +5370,10 @@ dependencies = [
 [[package]]
 name = "ordia-i18n"
 version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.21",
+ "toml 1.2.1+spec-1.1.0",
+]
 
 [[package]]
 name = "ordia-render"
@@ -5437,6 +5441,7 @@ name = "ordia-sheet-view"
 version = "0.1.0"
 dependencies = [
  "gpui-kit",
+ "ordia-i18n",
  "ordia-render",
  "ordia-render-gpui",
  "ordia-sheet-layout",
@@ -9361,6 +9366,7 @@ dependencies = [
  "clap",
  "serde",
  "serde_json",
+ "toml 1.2.1+spec-1.1.0",
 ]
 
 [[package]]

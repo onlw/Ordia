@@ -9,6 +9,7 @@ publish = false
 
 [dependencies]
 gpui-kit.workspace = true
+ordia-i18n.workspace = true
 ordia-render.workspace = true
 ordia-render-gpui.workspace = true
 ordia-sheet-model.workspace = true

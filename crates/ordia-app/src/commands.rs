@@ -35,13 +35,13 @@ pub enum CommandCategory {
 }
 
 impl CommandCategory {
-    /// Display title of the menu group.
-    pub const fn menu_title(self) -> &'static str {
+    /// Localized display title of the menu group.
+    pub fn menu_title(self) -> &'static str {
         match self {
-            Self::App => "Ordia",
-            Self::File => "File",
-            Self::Edit => "Edit",
-            Self::View => "View",
+            Self::App => ordia_i18n::t!("menu.app"),
+            Self::File => ordia_i18n::t!("menu.file"),
+            Self::Edit => ordia_i18n::t!("menu.edit"),
+            Self::View => ordia_i18n::t!("menu.view"),
         }
     }
 }
@@ -52,8 +52,6 @@ pub struct CommandSpec {
     id: &'static str,
     category: CommandCategory,
     i18n_key: &'static str,
-    label_zh: &'static str,
-    label_en: &'static str,
     icon: Option<OrdiaIcon>,
     shortcut_macos: Option<&'static str>,
     shortcut_other: Option<&'static str>,
@@ -80,19 +78,24 @@ impl CommandSpec {
         self.i18n_key
     }
 
+    /// Display name in the currently active [`ordia_i18n::Locale`].
+    pub fn label(&self) -> &'static str {
+        ordia_i18n::tr_in(ordia_i18n::current_locale(), self.i18n_key).unwrap_or(self.i18n_key)
+    }
+
     /// Simplified Chinese display name (`zh-CN`).
-    pub const fn label_zh(&self) -> &'static str {
-        self.label_zh
+    pub fn label_zh(&self) -> &'static str {
+        ordia_i18n::tr_in(ordia_i18n::Locale::ZhCn, self.i18n_key).unwrap_or(self.i18n_key)
     }
 
     /// English display name (`en`).
-    pub const fn label_en(&self) -> &'static str {
-        self.label_en
+    pub fn label_en(&self) -> &'static str {
+        ordia_i18n::tr_in(ordia_i18n::Locale::En, self.i18n_key).unwrap_or(self.i18n_key)
     }
 
-    /// Combined bilingual label shown in the Command Palette (`"保存 · Save"`).
+    /// Combined bilingual label shown in the Command Palette.
     pub fn palette_label(&self) -> SharedString {
-        SharedString::from(format!("{} · {}", self.label_zh, self.label_en))
+        SharedString::from(format!("{} · {}", self.label_zh(), self.label_en()))
     }
 
     /// Optional semantic icon.
@@ -234,8 +237,6 @@ impl CommandRegistry {
             id: "app.quit",
             category: CommandCategory::App,
             i18n_key: "cmd.app.quit",
-            label_zh: "退出 Ordia",
-            label_en: "Quit Ordia",
             icon: Some(OrdiaIcon::Close),
             shortcut_macos: Some("cmd-q"),
             shortcut_other: Some("ctrl-q"),
@@ -250,8 +251,6 @@ impl CommandRegistry {
             id: "file.save",
             category: CommandCategory::File,
             i18n_key: "cmd.file.save",
-            label_zh: "保存",
-            label_en: "Save",
             icon: Some(OrdiaIcon::Save),
             shortcut_macos: Some("cmd-s"),
             shortcut_other: Some("ctrl-s"),
@@ -266,8 +265,6 @@ impl CommandRegistry {
             id: "file.new_workbook",
             category: CommandCategory::File,
             i18n_key: "cmd.file.new_workbook",
-            label_zh: "新建工作簿",
-            label_en: "New Workbook",
             icon: Some(OrdiaIcon::Add),
             shortcut_macos: Some("cmd-t"),
             shortcut_other: Some("ctrl-t"),
@@ -282,8 +279,6 @@ impl CommandRegistry {
             id: "file.new_window",
             category: CommandCategory::File,
             i18n_key: "cmd.file.new_window",
-            label_zh: "新建窗口",
-            label_en: "New Window",
             icon: Some(OrdiaIcon::Open),
             shortcut_macos: Some("cmd-shift-n"),
             shortcut_other: Some("ctrl-shift-n"),
@@ -300,8 +295,6 @@ impl CommandRegistry {
             id: "file.close_tab",
             category: CommandCategory::File,
             i18n_key: "cmd.file.close_tab",
-            label_zh: "关闭标签页",
-            label_en: "Close Tab",
             icon: Some(OrdiaIcon::Close),
             shortcut_macos: Some("cmd-w"),
             shortcut_other: Some("ctrl-w"),
@@ -316,8 +309,6 @@ impl CommandRegistry {
             id: "edit.undo",
             category: CommandCategory::Edit,
             i18n_key: "cmd.edit.undo",
-            label_zh: "撤销",
-            label_en: "Undo",
             icon: Some(OrdiaIcon::Undo),
             shortcut_macos: None,
             shortcut_other: None,
@@ -339,8 +330,6 @@ impl CommandRegistry {
             id: "edit.redo",
             category: CommandCategory::Edit,
             i18n_key: "cmd.edit.redo",
-            label_zh: "重做",
-            label_en: "Redo",
             icon: Some(OrdiaIcon::Redo),
             shortcut_macos: None,
             shortcut_other: None,
@@ -362,8 +351,6 @@ impl CommandRegistry {
             id: "view.command_palette",
             category: CommandCategory::View,
             i18n_key: "cmd.view.command_palette",
-            label_zh: "命令面板",
-            label_en: "Command Palette",
             icon: Some(OrdiaIcon::CommandPalette),
             shortcut_macos: Some("cmd-k"),
             shortcut_other: Some("ctrl-k"),
@@ -378,8 +365,6 @@ impl CommandRegistry {
             id: "view.home",
             category: CommandCategory::View,
             i18n_key: "cmd.view.home",
-            label_zh: "首页",
-            label_en: "Home",
             icon: Some(OrdiaIcon::Spreadsheet),
             shortcut_macos: Some("cmd-shift-h"),
             shortcut_other: Some("ctrl-shift-h"),
@@ -394,8 +379,6 @@ impl CommandRegistry {
             id: "view.toggle_inspector",
             category: CommandCategory::View,
             i18n_key: "cmd.view.toggle_inspector",
-            label_zh: "切换属性面板",
-            label_en: "Toggle Property Inspector",
             icon: Some(OrdiaIcon::Inspector),
             shortcut_macos: Some("cmd-alt-i"),
             shortcut_other: Some("ctrl-alt-i"),
@@ -410,8 +393,6 @@ impl CommandRegistry {
             id: "view.toggle_sidebar",
             category: CommandCategory::View,
             i18n_key: "cmd.view.toggle_sidebar",
-            label_zh: "切换导航侧边栏",
-            label_en: "Toggle Navigation Sidebar",
             icon: Some(OrdiaIcon::Settings),
             shortcut_macos: Some("cmd-b"),
             shortcut_other: Some("ctrl-b"),
@@ -426,8 +407,6 @@ impl CommandRegistry {
             id: "view.toggle_theme",
             category: CommandCategory::View,
             i18n_key: "cmd.view.toggle_theme",
-            label_zh: "切换外观",
-            label_en: "Switch Appearance",
             icon: Some(OrdiaIcon::DarkMode),
             shortcut_macos: Some("cmd-shift-d"),
             shortcut_other: Some("ctrl-shift-d"),
@@ -456,8 +435,8 @@ impl CommandRegistry {
             .iter()
             .enumerate()
             .filter_map(|(ix, spec)| {
-                let s_zh = fuzzy_or_pinyin_score(trimmed, spec.label_zh);
-                let s_en = fuzzy_or_pinyin_score(trimmed, spec.label_en);
+                let s_zh = fuzzy_or_pinyin_score(trimmed, spec.label_zh());
+                let s_en = fuzzy_or_pinyin_score(trimmed, spec.label_en());
                 let s_id = fuzzy_or_pinyin_score(trimmed, spec.id);
                 let best = [s_zh, s_en, s_id].into_iter().flatten().max()?;
                 Some((best, ix, spec))
@@ -533,7 +512,7 @@ impl CommandRegistry {
                 .entry(spec.category)
                 .or_default()
                 .push(MenuItem::Action {
-                    name: spec.label_en.into(),
+                    name: spec.label().into(),
                     action: spec.boxed_action(),
                     os_action: None,
                     checked: false,
@@ -611,9 +590,7 @@ mod tests {
         custom.register(CommandSpec {
             id: "cmd.alpha",
             category: CommandCategory::File,
-            i18n_key: "cmd.alpha",
-            label_zh: "甲",
-            label_en: "Alpha",
+            i18n_key: "cmd.file.save",
             icon: None,
             shortcut_macos: Some("shift-cmd-S"),
             shortcut_other: Some("ctrl-shift-s"),
@@ -626,9 +603,7 @@ mod tests {
         custom.register(CommandSpec {
             id: "cmd.beta_conflict",
             category: CommandCategory::Edit,
-            i18n_key: "cmd.beta",
-            label_zh: "乙",
-            label_en: "Beta",
+            i18n_key: "cmd.edit.undo",
             icon: None,
             shortcut_macos: Some("cmd-shift-s"),
             shortcut_other: Some("shift-ctrl-S"),
@@ -641,9 +616,7 @@ mod tests {
         custom.register(CommandSpec {
             id: "cmd.gamma_scoped_ok",
             category: CommandCategory::View,
-            i18n_key: "cmd.gamma",
-            label_zh: "丙",
-            label_en: "Gamma",
+            i18n_key: "cmd.view.home",
             icon: None,
             shortcut_macos: Some("cmd-shift-s"),
             shortcut_other: Some("ctrl-shift-s"),

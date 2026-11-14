@@ -145,9 +145,10 @@
 - 完成记录（2026-11-14）：在 `ordia-app` 中实现了单一事实来源 `CommandRegistry`（声明式 `CommandSpec`：唯一 ID、菜单分类、`i18n_key`、双语标签、图标、跨平台快捷键、`key_context`、可用性谓词、GPUI `Action` 工厂与执行闭包），统一驱动全局快捷键绑定、macOS/Windows 菜单树、上下文工具栏按钮与 `Cmd/Ctrl+K` 浮动命令面板；基于 `encoding_rs::GBK` 的 GB2312 一级汉字拼音序表与常见多音字映射实现了零膨胀拼音首字母 + 模糊子序列打分器（`"bc"` 精准命中 `"保存"`、`"cz"` 命中 `"重做"`），并完成了跨平台修饰键规范化快捷键冲突检测与 UI/单元测试。
 
 ### M1-04 国际化 `ordia-i18n`
-- 状态：TODO ｜ 依赖：M0-08
+- 状态：DONE ｜ 依赖：M0-08
 - 交付物：`zh-CN` 和 `en` 两份资源文件、语言跟随系统并可以在设置中切换、一个检查脚本（`cargo xtask i18n-check`）：两份资源的键必须完全一致，代码里不能有硬编码的界面文字（用规则扫描）
-- 验收标准：[ ] `cargo xtask i18n-check` 通过，并加入 `cargo xtask ci`
+- 验收标准：[x] `cargo xtask i18n-check` 通过，并加入 `cargo xtask ci`
+- 完成记录（2026-11-14）：完成了内核层零 GUI 依赖的 `ordia-i18n` crate（编译期内嵌 `locales/zh-CN.toml` 与 `locales/en.toml` 共 95 个翻译键、启动时自动检测系统语言环境、`set_locale` / `LanguagePreference` 实时无重启切换、`tr` 零分配静态查询与 `t!` 占位符插值宏），并将 `ordia-app`、`ordia-ui`、`ordia-sheet-view` 全部界面文案迁移至 `ordia_i18n::t!`；升级了 `cargo xtask i18n-check`（校验双语键集合完全相等、占位符集合一致、无空白译文、扫描 UI 源码禁止硬编码中文与裸字符串标签/提示、并校验所有引用键存在）且接入 `cargo xtask ci`。
 
 ### M1-05 设置与持久化
 - 状态：TODO ｜ 依赖：M1-02
