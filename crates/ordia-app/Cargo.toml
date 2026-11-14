@@ -21,6 +21,7 @@ path = "src/main.rs"
 anyhow.workspace = true
 arboard.workspace = true
 clap.workspace = true
+encoding_rs.workspace = true
 gpui-kit.workspace = true
 ordia-core.workspace = true
 ordia-i18n.workspace = true

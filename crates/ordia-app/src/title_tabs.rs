@@ -182,6 +182,17 @@ impl MainWindow {
                         .gap_1()
                         .items_center()
                         .child(
+                            Button::new("open-command-palette")
+                                .ghost()
+                                .small()
+                                .icon(Icon::new(OrdiaIcon::CommandPalette))
+                                .label("Cmd+K")
+                                .tooltip("Command Palette (Cmd/Ctrl+K)")
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.open_command_palette(window, cx);
+                                })),
+                        )
+                        .child(
                             Button::new("new-window-btn")
                                 .ghost()
                                 .xsmall()

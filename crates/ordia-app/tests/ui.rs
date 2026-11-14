@@ -120,3 +120,55 @@ fn shell_new_switch_close_reorder_tabs_home_inspector_and_multiwindow(cx: &mut T
         assert_eq!(view2.read(cx).tabs().len(), 3);
     });
 }
+
+#[gpui_kit::test]
+fn command_palette_pinyin_search_and_registry_toolbar_execution(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        ordia_app::register_bindings_and_menus(cx);
+    });
+
+    let (handle, view) = cx.update(|cx| {
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds::new(
+                    Default::default(),
+                    size(px(1200.), px(780.)),
+                ))),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| cx.new(|cx| MainWindow::new(window, cx)),
+        )
+        .expect("open headless main window")
+    });
+
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(!view.read(cx).is_command_palette_open());
+        assert_eq!(view.read(cx).saved_count(), 0);
+
+        // Execute `file.save` via the toolbar button generated from `CommandRegistry`.
+        window.click("toolbar-file.save", cx);
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).saved_count(), 1);
+
+        // Open the `Cmd+K` Command Palette, verify Pinyin query `"bc"` surfaces `"file.save"` (`保存`),
+        // and verify closing the palette restores clean state.
+        window.click("open-command-palette", cx);
+        window.render_frame(cx);
+        assert!(view.read(cx).is_command_palette_open());
+
+        let hits = view.read(cx).command_registry().search("bc");
+        assert!(!hits.is_empty());
+        assert_eq!(hits[0].id(), "file.save");
+        assert_eq!(hits[0].label_zh(), "保存");
+
+        view.update(cx, |this, cx| {
+            this.close_command_palette(window, cx);
+        });
+        window.render_frame(cx);
+        assert!(!view.read(cx).is_command_palette_open());
+    })
+    .expect("drive command palette UI test");
+}

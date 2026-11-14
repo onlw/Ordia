@@ -5320,6 +5320,7 @@ dependencies = [
  "anyhow",
  "arboard",
  "clap",
+ "encoding_rs",
  "gpui-kit",
  "ordia-core",
  "ordia-csv",

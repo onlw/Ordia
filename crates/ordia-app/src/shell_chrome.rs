@@ -2,7 +2,8 @@
 //! for [`crate::MainWindow`] (`M1-02`, `PLAN.md` §5.1).
 
 use gpui_kit::component::{
-    ActiveTheme as _, Icon, Sizable as _, StyledExt as _, h_flex, status_bar::StatusBar, v_flex,
+    ActiveTheme as _, Icon, Sizable as _, StyledExt as _, command::Command, h_flex,
+    status_bar::StatusBar, v_flex,
 };
 use gpui_kit::{
     Context, InteractiveElement as _, IntoElement, ParentElement as _, SharedString, Styled as _,
@@ -16,10 +17,36 @@ use ordia_ui::{
 use crate::MainWindow;
 
 impl MainWindow {
-    /// Renders the single-row contextual toolbar slot (`PLAN.md` §5.1).
+    /// Renders the single-row contextual toolbar slot (`PLAN.md` §5.1), generating command
+    /// buttons (`file.save`, `edit.undo`, `edit.redo`, `view.toggle_inspector`) from [`crate::CommandRegistry`].
     pub(crate) fn render_toolbar_slot(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let tokens = OrdiaTokens::for_mode(cx.theme().mode);
         let entity = cx.entity();
+
+        let leading_cmds: Vec<_> = ["file.save", "edit.undo", "edit.redo"]
+            .into_iter()
+            .filter_map(|id| self.command_registry.get(id).cloned())
+            .map(|spec| {
+                let btn_id = SharedString::from(format!("toolbar-{}", spec.id()));
+                let enabled = spec.is_enabled(self, cx);
+                let tip = SharedString::from(format!("{} · {}", spec.label_zh(), spec.label_en()));
+                let icon = spec.icon();
+                let entity = entity.clone();
+                let mut btn = ToolbarButton::new(btn_id)
+                    .disabled(!enabled)
+                    .tooltip(tip)
+                    .on_click(move |_, window, cx| {
+                        let spec = spec.clone();
+                        entity.update(cx, |this, cx| {
+                            spec.execute(this, window, cx);
+                        });
+                    });
+                if let Some(icon) = icon {
+                    btn = btn.icon(icon);
+                }
+                btn
+            })
+            .collect();
 
         h_flex()
             .id("shell-toolbar-slot")
@@ -37,42 +64,7 @@ impl MainWindow {
                     .flex_wrap()
                     .gap(tokens.spacing.xs)
                     .items_center()
-                    .child(
-                        ToolbarButton::new("toolbar-undo")
-                            .icon(OrdiaIcon::Undo)
-                            .tooltip("Undo (Cmd/Ctrl+Z)")
-                            .on_click({
-                                let entity = entity.clone();
-                                move |_, _, cx| {
-                                    entity.update(cx, |this, cx| {
-                                        if let Some(sheet) = this.active_sheet_view().cloned() {
-                                            sheet.update(cx, |s, cx| {
-                                                let _ = s.document_mut().undo();
-                                                cx.notify();
-                                            });
-                                        }
-                                    });
-                                }
-                            }),
-                    )
-                    .child(
-                        ToolbarButton::new("toolbar-redo")
-                            .icon(OrdiaIcon::Redo)
-                            .tooltip("Redo (Cmd/Ctrl+Shift+Z)")
-                            .on_click({
-                                let entity = entity.clone();
-                                move |_, _, cx| {
-                                    entity.update(cx, |this, cx| {
-                                        if let Some(sheet) = this.active_sheet_view().cloned() {
-                                            sheet.update(cx, |s, cx| {
-                                                let _ = s.document_mut().redo();
-                                                cx.notify();
-                                            });
-                                        }
-                                    });
-                                }
-                            }),
-                    )
+                    .children(leading_cmds)
                     .child(Self::toolbar_divider(cx))
                     .child(
                         ToolbarSelect::new("toolbar-font-family", &self.toolbar_font_select)
@@ -287,5 +279,78 @@ impl MainWindow {
             )
             .child(center_stats)
             .right(SharedString::from("100%"))
+    }
+
+    /// Renders the floating `Cmd/Ctrl+K` Command Palette modal with Pinyin + fuzzy search.
+    pub(crate) fn render_command_palette_overlay(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let tokens = OrdiaTokens::for_mode(cx.theme().mode);
+        let items = self
+            .command_registry
+            .build_palette_items(&self.palette_query, self, cx);
+        let entity = cx.entity();
+
+        div()
+            .id("command-palette-backdrop")
+            .occlude()
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full()
+            .flex()
+            .items_start()
+            .justify_center()
+            .pt(px(72.0))
+            .bg(tokens.colors.focus_ring.opacity(0.18))
+            .on_mouse_down(
+                gpui_kit::MouseButton::Left,
+                cx.listener(|this, _, window, cx| {
+                    this.close_command_palette(window, cx);
+                }),
+            )
+            .child(
+                div()
+                    .id("command-palette-modal")
+                    .w(px(520.0))
+                    .rounded(tokens.radius.lg)
+                    .bg(cx.theme().popover)
+                    .shadow(tokens.elevation.lg)
+                    .on_mouse_down(gpui_kit::MouseButton::Left, |_, _, cx| {
+                        cx.stop_propagation();
+                    })
+                    .child(
+                        Command::new(&self.palette_state)
+                            .filterable(false)
+                            .placeholder(
+                                "Search commands or type Pinyin initials (e.g. bc → 保存)…",
+                            )
+                            .items(items)
+                            .on_query({
+                                let entity = entity.clone();
+                                move |q, _, cx| {
+                                    let q_str = SharedString::from(q.to_string());
+                                    entity.update(cx, |this, cx| {
+                                        this.palette_query = q_str;
+                                        cx.notify();
+                                    });
+                                }
+                            })
+                            .on_confirm({
+                                let entity = entity.clone();
+                                move |_, window, cx| {
+                                    entity.update(cx, |this, cx| {
+                                        this.close_command_palette(window, cx);
+                                    });
+                                }
+                            })
+                            .on_cancel(move |window, cx| {
+                                entity.update(cx, |this, cx| {
+                                    this.close_command_palette(window, cx);
+                                });
+                            }),
+                    ),
+            )
     }
 }

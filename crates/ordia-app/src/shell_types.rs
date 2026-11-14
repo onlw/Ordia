@@ -81,6 +81,11 @@ impl WorkbookTab {
     pub fn is_dirty(&self) -> bool {
         self.dirty
     }
+
+    /// Updates whether the document has unsaved edits.
+    pub fn set_dirty(&mut self, dirty: bool) {
+        self.dirty = dirty;
+    }
 }
 
 /// Recent file item displayed on the Home screen.

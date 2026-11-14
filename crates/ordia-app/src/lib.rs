@@ -1,6 +1,10 @@
 //! Application shell, window management, commands, settings, and platform integration for Ordia.
 
+/// Unified command registry, shortcut conflict detection, and Command Palette items (`M1-03`).
+pub mod commands;
 mod home_view;
+/// GB2312 Level-1 Hanzi Pinyin-initials and fuzzy subsequence matcher (`M1-03`).
+pub mod pinyin;
 /// Platform-specific native integrations (`macos`, `windows`).
 pub mod platform;
 mod shell_chrome;
@@ -14,20 +18,24 @@ use gpui_kit::base::GlobalState;
 #[cfg(not(target_os = "macos"))]
 use gpui_kit::component::menu::AppMenuBar;
 use gpui_kit::component::{
-    ActiveTheme as _, ThemeMode, TitleBar, color_picker::ColorPickerState, h_flex, v_flex,
+    ActiveTheme as _, ThemeMode, TitleBar, color_picker::ColorPickerState, command::CommandState,
+    h_flex, v_flex,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     App, AppContext as _, Bounds, Context, Entity, ExternalPaths, FocusHandle, Focusable,
-    InteractiveElement as _, IntoElement, KeyBinding, Menu, MenuItem, OwnedMenu,
-    ParentElement as _, Render, Styled as _, Window, WindowBounds, WindowOptions, px, size,
+    InteractiveElement as _, IntoElement, Menu, OwnedMenu, ParentElement as _, Render,
+    SharedString, Styled as _, Window, WindowBounds, WindowOptions, px, size,
 };
 use ordia_sheet_model::SheetDocument;
-use ordia_sheet_view::{RedoEdit, SheetWorkspaceView, UndoEdit, register_sheet_keybindings};
+use ordia_sheet_view::{SheetWorkspaceView, register_sheet_keybindings};
 use ordia_ui::{
     OrdiaTokens, ToolbarSelectState, new_toolbar_color_picker_state, new_toolbar_select_state,
 };
 
+pub use commands::{
+    CommandCategory, CommandRegistry, CommandSpec, ShortcutConflict, normalize_shortcut,
+};
 pub use shell_types::{RecentFileEntry, SidebarSection, WorkbookTab};
 
 /// Keyboard and menu command actions for the application shell.
@@ -43,13 +51,15 @@ pub mod app_actions {
             NewWorkbookTab,
             CloseActiveTab,
             NewWindow,
-            ShowHome
+            ShowHome,
+            OpenCommandPalette,
+            SaveWorkbook
         ]
     );
 }
 pub use app_actions::{
-    CloseActiveTab, NewWindow, NewWorkbookTab, Quit, ShowHome, ToggleInspector, ToggleSidebar,
-    ToggleTheme,
+    CloseActiveTab, NewWindow, NewWorkbookTab, OpenCommandPalette, Quit, SaveWorkbook, ShowHome,
+    ToggleInspector, ToggleSidebar, ToggleTheme,
 };
 
 /// Returns the application display name.
@@ -57,35 +67,16 @@ pub const fn app_name() -> &'static str {
     "Ordia"
 }
 
-/// Registers global keyboard shortcuts, macOS native menu bar, and Windows/Linux `AppMenuBar` menus.
+/// Registers global keyboard shortcuts, macOS native menu bar, and Windows/Linux `AppMenuBar` menus
+/// directly from [`CommandRegistry::default_ordia`].
 pub fn register_bindings_and_menus(cx: &mut App) {
-    #[cfg(target_os = "macos")]
-    let bindings = [
-        KeyBinding::new("cmd-q", Quit, None),
-        KeyBinding::new("cmd-b", ToggleSidebar, None),
-        KeyBinding::new("cmd-alt-i", ToggleInspector, None),
-        KeyBinding::new("cmd-t", NewWorkbookTab, None),
-        KeyBinding::new("cmd-n", NewWorkbookTab, None),
-        KeyBinding::new("cmd-w", CloseActiveTab, None),
-        KeyBinding::new("cmd-shift-n", NewWindow, None),
-        KeyBinding::new("cmd-shift-h", ShowHome, None),
-        KeyBinding::new("cmd-shift-d", ToggleTheme, None),
-    ];
+    let registry = CommandRegistry::default_ordia();
+    debug_assert!(
+        registry.detect_shortcut_conflicts().is_empty(),
+        "CommandRegistry contains shortcut conflicts"
+    );
 
-    #[cfg(not(target_os = "macos"))]
-    let bindings = [
-        KeyBinding::new("ctrl-q", Quit, None),
-        KeyBinding::new("ctrl-b", ToggleSidebar, None),
-        KeyBinding::new("ctrl-alt-i", ToggleInspector, None),
-        KeyBinding::new("ctrl-t", NewWorkbookTab, None),
-        KeyBinding::new("ctrl-n", NewWorkbookTab, None),
-        KeyBinding::new("ctrl-w", CloseActiveTab, None),
-        KeyBinding::new("ctrl-shift-n", NewWindow, None),
-        KeyBinding::new("ctrl-shift-h", ShowHome, None),
-        KeyBinding::new("ctrl-shift-d", ToggleTheme, None),
-    ];
-
-    cx.bind_keys(bindings);
+    cx.bind_keys(registry.build_keybindings(cx));
     register_sheet_keybindings(cx);
 
     cx.on_action(|_: &Quit, cx| {
@@ -95,49 +86,14 @@ pub fn register_bindings_and_menus(cx: &mut App) {
         let _ = MainWindow::open(cx);
     });
 
-    let build_menus = || {
-        vec![
-            Menu {
-                name: "Ordia".into(),
-                items: vec![MenuItem::action("Quit Ordia", Quit)],
-                disabled: false,
-            },
-            Menu {
-                name: "File".into(),
-                items: vec![
-                    MenuItem::action("New Workbook", NewWorkbookTab),
-                    MenuItem::action("New Window", NewWindow),
-                    MenuItem::separator(),
-                    MenuItem::action("Close Tab", CloseActiveTab),
-                ],
-                disabled: false,
-            },
-            Menu {
-                name: "Edit".into(),
-                items: vec![
-                    MenuItem::action("Undo", UndoEdit),
-                    MenuItem::action("Redo", RedoEdit),
-                ],
-                disabled: false,
-            },
-            Menu {
-                name: "View".into(),
-                items: vec![
-                    MenuItem::action("Home", ShowHome),
-                    MenuItem::action("Toggle Property Inspector", ToggleInspector),
-                    MenuItem::action("Toggle Navigation Sidebar", ToggleSidebar),
-                    MenuItem::separator(),
-                    MenuItem::action("Switch Appearance", ToggleTheme),
-                ],
-                disabled: false,
-            },
-        ]
-    };
-
-    let owned_menus: Vec<OwnedMenu> = build_menus().into_iter().map(Menu::owned).collect();
+    let owned_menus: Vec<OwnedMenu> = registry
+        .build_menus()
+        .into_iter()
+        .map(Menu::owned)
+        .collect();
     GlobalState::init(cx);
     GlobalState::global_mut(cx).set_app_menus(owned_menus);
-    cx.set_menus(build_menus());
+    cx.set_menus(registry.build_menus());
 }
 
 /// Opens the interactive Ordia Design System Gallery window (`--gallery`).
@@ -168,6 +124,10 @@ pub struct MainWindow {
     focus_handle: FocusHandle,
     #[cfg(not(target_os = "macos"))]
     app_menu_bar: Entity<AppMenuBar>,
+    pub(crate) command_registry: CommandRegistry,
+    pub(crate) palette_open: bool,
+    pub(crate) palette_query: SharedString,
+    pub(crate) palette_state: Entity<CommandState>,
     pub(crate) sidebar_collapsed: bool,
     pub(crate) inspector_open: bool,
     pub(crate) show_home: bool,
@@ -176,6 +136,7 @@ pub struct MainWindow {
     pub(crate) sheet_views: Vec<Entity<SheetWorkspaceView>>,
     pub(crate) active_tab_ix: usize,
     next_tab_id: u64,
+    saved_count: u64,
     recent_files: Vec<RecentFileEntry>,
     pub(crate) toolbar_font_select: Entity<ToolbarSelectState>,
     pub(crate) toolbar_size_select: Entity<ToolbarSelectState>,
@@ -286,10 +247,16 @@ impl MainWindow {
             }),
         ];
 
+        let palette_state = cx.new(|cx| CommandState::new(window, cx));
+
         Self {
             focus_handle,
             #[cfg(not(target_os = "macos"))]
             app_menu_bar,
+            command_registry: CommandRegistry::default_ordia(),
+            palette_open: false,
+            palette_query: SharedString::default(),
+            palette_state,
             sidebar_collapsed: false,
             inspector_open: false,
             show_home: false,
@@ -298,6 +265,7 @@ impl MainWindow {
             sheet_views,
             active_tab_ix: 0,
             next_tab_id: 4,
+            saved_count: 0,
             recent_files: Self::default_recent_entries(),
             toolbar_font_select,
             toolbar_size_select,
@@ -319,6 +287,7 @@ impl MainWindow {
             Self::build_shell_controls(window, cx);
         #[cfg(not(target_os = "macos"))]
         let app_menu_bar = AppMenuBar::new(cx);
+        let palette_state = cx.new(|cx| CommandState::new(window, cx));
 
         let title = doc.title().to_string();
         let sheet_count = doc.sheet_count();
@@ -335,6 +304,10 @@ impl MainWindow {
             focus_handle,
             #[cfg(not(target_os = "macos"))]
             app_menu_bar,
+            command_registry: CommandRegistry::default_ordia(),
+            palette_open: false,
+            palette_query: SharedString::default(),
+            palette_state,
             sidebar_collapsed: true,
             inspector_open: false,
             show_home: false,
@@ -343,6 +316,7 @@ impl MainWindow {
             sheet_views,
             active_tab_ix: 0,
             next_tab_id: 2,
+            saved_count: 0,
             recent_files: Self::default_recent_entries(),
             toolbar_font_select,
             toolbar_size_select,
@@ -426,9 +400,58 @@ impl MainWindow {
     pub fn recent_files(&self) -> &[RecentFileEntry] {
         &self.recent_files
     }
+
+    /// Returns a reference to the window's [`CommandRegistry`].
+    pub fn command_registry(&self) -> &CommandRegistry {
+        &self.command_registry
+    }
+
+    /// Returns whether the `Cmd/Ctrl+K` Command Palette overlay is open.
+    pub fn is_command_palette_open(&self) -> bool {
+        self.palette_open
+    }
+
+    /// Returns the number of times [`Self::save_active_workbook`] has succeeded in this session.
+    pub fn saved_count(&self) -> u64 {
+        self.saved_count
+    }
 }
 
 impl MainWindow {
+    /// Opens the floating `Cmd/Ctrl+K` Command Palette and focuses its search input.
+    pub fn open_command_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.palette_open = true;
+        self.palette_query = SharedString::default();
+        self.palette_state.update(cx, |state, cx| {
+            state.set_query("", window, cx);
+        });
+        let focus = self.palette_state.focus_handle(cx);
+        window.focus(&focus, cx);
+        cx.notify();
+    }
+
+    /// Closes the Command Palette overlay and restores focus to the main window.
+    pub fn close_command_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.palette_open {
+            self.palette_open = false;
+            self.palette_query = SharedString::default();
+            window.focus(&self.focus_handle, cx);
+            cx.notify();
+        }
+    }
+
+    /// Marks the active workbook tab as saved and increments the session save counter.
+    pub fn save_active_workbook(&mut self, cx: &mut Context<Self>) {
+        if self.is_showing_home() {
+            return;
+        }
+        if let Some(tab) = self.tabs.get_mut(self.active_tab_ix) {
+            tab.set_dirty(false);
+            self.saved_count += 1;
+            cx.notify();
+        }
+    }
+
     /// Toggles between light and dark theme modes across the application.
     pub fn toggle_theme(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let next_mode = if cx.theme().mode.is_dark() {
@@ -672,10 +695,21 @@ impl Render for MainWindow {
 
         let root = v_flex()
             .id("ordia-main-window")
+            .relative()
             .key_context("OrdiaMainWindow")
             .track_focus(&self.focus_handle)
             .on_drop(cx.listener(|this, paths: &ExternalPaths, window, cx| {
                 this.open_dropped_paths(paths.paths(), window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &OpenCommandPalette, window, cx| {
+                if this.palette_open {
+                    this.close_command_palette(window, cx);
+                } else {
+                    this.open_command_palette(window, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &SaveWorkbook, _, cx| {
+                this.save_active_workbook(cx);
             }))
             .on_action(cx.listener(|this, _: &ToggleTheme, window, cx| {
                 this.toggle_theme(window, cx);
@@ -722,5 +756,8 @@ impl Render for MainWindow {
                     .child(self.render_workspace_content(cx)),
             )
             .child(self.render_status_bar(cx))
+            .when(self.palette_open, |el| {
+                el.child(self.render_command_palette_overlay(cx))
+            })
     }
 }
