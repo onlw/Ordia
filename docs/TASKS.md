@@ -157,9 +157,10 @@
 - 完成记录（2026-11-14）：在 `ordia-core` 中实现了 `SettingsStore`、`AppSettings`（通用、外观、语言、编辑、高级五大分组）与 `AppStateSnapshot`（窗口几何位置与大小、侧边栏/属性面板折叠状态、最近打开文件 MRU 去重截断列表），采用写 `.toml.tmp` 临时文件 + `sync_all` + TOML 预解析校验 + `rename` 原子落盘策略；在 `ordia-app` 中实现了 `Cmd/Ctrl+,` 设置页面并打通实时外观主题与双语切换，新增了重启恢复单元测试与无界面 UI 集成测试。
 
 ### M1-06 文档抽象与文件打开流程
-- 状态：TODO ｜ 依赖：M1-02
+- 状态：DONE ｜ 依赖：M1-02
 - 交付物：`ordia-core` 中的 `Document` 抽象（类型识别、打开、保存、是否已修改、标题）；按扩展名和文件内容识别类型；打开时显示进度、大文件在后台线程加载、加载失败时给出友好的错误提示；macOS 和 Windows 的文件关联（.xlsx、.csv）
-- 验收标准：[ ] 打开损坏的文件时不崩溃，显示错误提示（测试） ｜ [ ] 打开 100 万行文件时界面不卡死
+- 验收标准：[x] 打开损坏的文件时不崩溃，显示错误提示（测试） ｜ [x] 打开 100 万行文件时界面不卡死
+- 完成记录（2026-11-14）：在 `ordia-core` 中定义了跨产品统一的 `Document` trait、`DocumentKind`、`LoadProgress`/`LoadStage`、`DocumentError`、`atomic_write_bytes` 原子写盘校验工具，以及同时检查文件扩展名与文件头魔数（`PK\x03\x04` OOXML、`D0 CF 11 E0` 旧版 OLE2 `.xls`、UTF-8/UTF-16 BOM 与 NUL 字节检测）的 `detect_document_format`；在 `ordia-sheet-model` 中为 `SheetDocument` 实现了 `Document` trait（含 `catch_unwind` 异常隔离及 `.xlsx`/`.xlsm`/`.csv`/`.tsv` 读写）；在 `ordia-app` 中实现了 `open_file_async` 后台线程池加载、非阻塞进度横幅、双语可关闭友好错误横幅、命令行位置参数与 macOS `on_open_urls` 文件关联接收，并补齐了 `assets/macos/Info.plist`（UTI）与 `assets/windows/file-associations.reg`（`HKCU\Software\Classes` ProgID）及 UI/单元测试。
 
 ### M1-07 操作日志与崩溃恢复框架
 - 状态：TODO ｜ 依赖：M1-06

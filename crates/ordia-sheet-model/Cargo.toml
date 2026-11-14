@@ -12,5 +12,8 @@ ordia-core.workspace = true
 ordia-sheet-engine.workspace = true
 serde.workspace = true
 
+[dev-dependencies]
+tempfile.workspace = true
+
 [lints]
 workspace = true

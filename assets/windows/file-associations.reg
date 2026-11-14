@@ -1,0 +1,33 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CURRENT_USER\Software\Classes\Ordia.Spreadsheet.xlsx]
+@="Ordia OpenXML Spreadsheet (.xlsx)"
+[HKEY_CURRENT_USER\Software\Classes\Ordia.Spreadsheet.xlsx\shell\open\command]
+@="\"C:\\Program Files\\Ordia\\ordia-app.exe\" \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Ordia.Spreadsheet.xlsm]
+@="Ordia Macro-Enabled Spreadsheet (.xlsm)"
+[HKEY_CURRENT_USER\Software\Classes\Ordia.Spreadsheet.xlsm\shell\open\command]
+@="\"C:\\Program Files\\Ordia\\ordia-app.exe\" \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Ordia.Spreadsheet.csv]
+@="Ordia Comma-Separated Values (.csv)"
+[HKEY_CURRENT_USER\Software\Classes\Ordia.Spreadsheet.csv\shell\open\command]
+@="\"C:\\Program Files\\Ordia\\ordia-app.exe\" \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Ordia.Spreadsheet.tsv]
+@="Ordia Tab-Separated Values (.tsv)"
+[HKEY_CURRENT_USER\Software\Classes\Ordia.Spreadsheet.tsv\shell\open\command]
+@="\"C:\\Program Files\\Ordia\\ordia-app.exe\" \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\.xlsx\OpenWithProgids]
+"Ordia.Spreadsheet.xlsx"=""
+
+[HKEY_CURRENT_USER\Software\Classes\.xlsm\OpenWithProgids]
+"Ordia.Spreadsheet.xlsm"=""
+
+[HKEY_CURRENT_USER\Software\Classes\.csv\OpenWithProgids]
+"Ordia.Spreadsheet.csv"=""
+
+[HKEY_CURRENT_USER\Software\Classes\.tsv\OpenWithProgids]
+"Ordia.Spreadsheet.tsv"=""

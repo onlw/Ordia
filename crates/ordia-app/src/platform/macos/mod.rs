@@ -1,4 +1,4 @@
-//! macOS-specific platform integrations (`NSPasteboard` dual HTML + TSV clipboard).
+//! macOS-specific platform integrations (`NSPasteboard` dual HTML + TSV clipboard & `Info.plist` document types).
 
 use ordia_sheet_model::ClipboardPayload;
 use ordia_sheet_view::SheetClipboardBridge;
@@ -25,4 +25,10 @@ impl SheetClipboardBridge for MacosClipboardBridge {
         let tsv = cb.get_text().ok();
         (html, tsv)
     }
+}
+
+/// Returns the Apple bundle `Info.plist` XML containing `CFBundleDocumentTypes` for `.xlsx`, `.xlsm`, `.csv`, `.tsv`.
+#[must_use]
+pub const fn info_plist_xml() -> &'static str {
+    super::macos_info_plist_template()
 }

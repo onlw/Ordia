@@ -2,6 +2,8 @@
 
 /// Unified command registry, shortcut conflict detection, and Command Palette items (`M1-03`).
 pub mod commands;
+/// Non-blocking background document loader, progress banner, and friendly error display (`M1-06`).
+pub mod document_loader;
 mod home_view;
 /// GB2312 Level-1 Hanzi Pinyin-initials and fuzzy subsequence matcher (`M1-03`).
 pub mod pinyin;
@@ -41,6 +43,9 @@ use ordia_ui::{
 
 pub use commands::{
     CommandCategory, CommandRegistry, CommandSpec, ShortcutConflict, normalize_shortcut,
+};
+pub use document_loader::{
+    ASYNC_LOAD_THRESHOLD_BYTES, LoadingBannerState, OpenErrorBanner, format_friendly_open_error,
 };
 pub use shell_types::{RecentFileEntry, SidebarSection, WorkbookTab};
 
@@ -166,7 +171,11 @@ pub struct MainWindow {
     pub(crate) active_tab_ix: usize,
     next_tab_id: u64,
     saved_count: u64,
-    recent_files: Vec<RecentFileEntry>,
+    pub(crate) recent_files: Vec<RecentFileEntry>,
+    pub(crate) loading_banner: Option<LoadingBannerState>,
+    pub(crate) open_error_banner: Option<OpenErrorBanner>,
+    pub(crate) load_ticket: u64,
+    pub(crate) active_load_task: Option<gpui_kit::Task<()>>,
     pub(crate) toolbar_font_select: Entity<ToolbarSelectState>,
     pub(crate) toolbar_size_select: Entity<ToolbarSelectState>,
     pub(crate) toolbar_fill_picker: Entity<ColorPickerState>,
@@ -346,6 +355,10 @@ impl MainWindow {
             next_tab_id: 4,
             saved_count: 0,
             recent_files,
+            loading_banner: None,
+            open_error_banner: None,
+            load_ticket: 0,
+            active_load_task: None,
             toolbar_font_select,
             toolbar_size_select,
             toolbar_fill_picker,
@@ -405,6 +418,10 @@ impl MainWindow {
             next_tab_id: 2,
             saved_count: 0,
             recent_files: Self::default_recent_entries(),
+            loading_banner: None,
+            open_error_banner: None,
+            load_ticket: 0,
+            active_load_task: None,
             toolbar_font_select,
             toolbar_size_select,
             toolbar_fill_picker,
@@ -430,21 +447,36 @@ impl MainWindow {
         Ok(opened)
     }
 
-    /// Creates and opens a main window, optionally loading an `.xlsx` file from `path`.
+    /// Creates and opens a main window, optionally loading a spreadsheet file from `path`.
+    ///
+    /// Large files (`>= 2 MiB`) load asynchronously on GPUI's background executor with a live progress banner,
+    /// while damaged or unsupported files surface a friendly localized error banner without crashing.
     pub fn open_with_path(
         path: Option<&Path>,
         cx: &mut App,
     ) -> anyhow::Result<(gpui_kit::AnyWindowHandle, Entity<Self>)> {
         let store = SettingsStore::default_store();
-        let preloaded = match path {
-            Some(p) => Some(SheetDocument::open_xlsx(p)?),
-            None => None,
-        };
+        let target_path = path.map(Path::to_path_buf);
         let options = window_options_for_store(&store, cx);
         let opened = gpui_kit::open_window(options, cx, move |window, cx| {
-            cx.new(|cx| match preloaded {
-                Some(doc) => Self::new_with_document(doc, window, cx),
-                None => Self::new_with_store(store, window, cx),
+            cx.new(|cx| {
+                let mut view = Self::new_with_store(store, window, cx);
+                if let Some(p) = target_path {
+                    view.tabs.clear();
+                    view.sheet_views.clear();
+                    view.active_tab_ix = 0;
+                    view.show_home = true;
+                    view.sidebar_collapsed = true;
+                    let is_large = std::fs::metadata(&p)
+                        .map(|m| m.len() >= ASYNC_LOAD_THRESHOLD_BYTES)
+                        .unwrap_or(false);
+                    if is_large {
+                        view.open_file_async(p, window, cx);
+                    } else {
+                        view.open_file_sync(&p, window, cx);
+                    }
+                }
+                view
             })
         })?;
         Ok(opened)
@@ -755,6 +787,9 @@ impl MainWindow {
     }
 
     /// Opens one or more dropped external files (`.xlsx`, `.xlsm`, `.csv`, `.tsv`) as workbook tabs.
+    ///
+    /// Large files (`>= 2 MiB`) dispatch onto GPUI's background executor so the UI never freezes;
+    /// damaged or unsupported files surface a friendly localized error banner.
     pub fn open_dropped_paths(
         &mut self,
         paths: &[PathBuf],
@@ -762,36 +797,13 @@ impl MainWindow {
         cx: &mut Context<Self>,
     ) {
         for path in paths {
-            let file_name = path
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("Dropped.xlsx")
-                .to_string();
-            if let Ok(doc) = SheetDocument::open_xlsx(path) {
-                let id = self.next_tab_id;
-                self.next_tab_id += 1;
-                let sheet_count = doc.sheet_count().to_string();
-                let tab = WorkbookTab::new(
-                    id,
-                    file_name.clone(),
-                    ordia_i18n::t!("shell.summary_local_sheets", "count" => sheet_count),
-                )
-                .with_path(path.clone());
-                self.recent_files.retain(|r| r.path() != path);
-                self.recent_files.insert(
-                    0,
-                    RecentFileEntry::new(
-                        file_name,
-                        path.clone(),
-                        ordia_i18n::t!("shell.recent_just_now"),
-                    ),
-                );
-                let max_len = self.settings.general.max_recent_files.max(1);
-                if self.recent_files.len() > max_len {
-                    self.recent_files.truncate(max_len);
-                }
-                self.persist_shell_state();
-                self.push_document_tab(tab, doc, window, cx);
+            let is_large = std::fs::metadata(path)
+                .map(|m| m.len() >= ASYNC_LOAD_THRESHOLD_BYTES)
+                .unwrap_or(false);
+            if is_large {
+                self.open_file_async(path.clone(), window, cx);
+            } else {
+                self.open_file_sync(path, window, cx);
             }
         }
     }
@@ -976,6 +988,10 @@ impl Render for MainWindow {
         root.when(!showing_home_or_settings, |el| {
             el.child(self.render_toolbar_slot(cx))
         })
+        .when(
+            self.loading_banner.is_some() || self.open_error_banner.is_some(),
+            |el| el.child(self.render_open_banners(cx)),
+        )
         .child(
             h_flex()
                 .items_stretch()

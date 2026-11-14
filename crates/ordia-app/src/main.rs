@@ -8,7 +8,11 @@ use std::time::{Duration, Instant};
 #[derive(Debug, Parser)]
 #[command(name = "ordia-app", about = "Ordia cross-platform office suite")]
 struct CliArgs {
-    /// Optional `.xlsx` workbook path to open immediately on startup.
+    /// Positional spreadsheet path passed by OS file associations (`"%1"` on Windows / CLI).
+    #[arg(value_name = "FILE")]
+    file: Option<PathBuf>,
+
+    /// Optional `.xlsx`/`.csv` workbook path to open immediately on startup.
     #[arg(long)]
     open: Option<PathBuf>,
 
@@ -29,13 +33,23 @@ struct CliArgs {
     gallery: bool,
 }
 
+fn file_url_to_path(url: &str) -> Option<PathBuf> {
+    let stripped = url.strip_prefix("file://")?;
+    let host_stripped = stripped.strip_prefix("localhost").unwrap_or(stripped);
+    Some(PathBuf::from(host_stripped))
+}
+
 fn main() {
     let args = CliArgs::parse();
+    let initial_open = args.open.clone().or_else(|| args.file.clone());
 
     if let Some(pdf_out) = args.export_pdf.as_ref() {
-        let doc = match args.open.as_deref() {
-            Some(p) => ordia_sheet_model::SheetDocument::open_xlsx(p),
-            None => ordia_sheet_model::SheetDocument::new_demo("Budget_2026"),
+        let doc = match initial_open.as_deref() {
+            Some(p) => {
+                ordia_sheet_model::SheetDocument::open_auto(p).map_err(|e| anyhow::anyhow!("{e}"))
+            }
+            None => ordia_sheet_model::SheetDocument::new_demo("Budget_2026")
+                .map_err(|e| anyhow::anyhow!("{e}")),
         }
         .unwrap_or_else(|err| {
             eprintln!("failed to open workbook for PDF export: {err}");
@@ -61,9 +75,21 @@ fn main() {
         return;
     }
 
-    gpui_kit::application()
-        .with_assets(gpui_kit::assets::AllAssets)
-        .run(move |cx| {
+    let finder_urls: std::sync::Arc<std::sync::Mutex<Vec<PathBuf>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let finder_urls_writer = finder_urls.clone();
+
+    let app = gpui_kit::application().with_assets(gpui_kit::assets::AllAssets);
+    app.on_open_urls(move |urls| {
+        if let Ok(mut queue) = finder_urls_writer.lock() {
+            for u in urls {
+                if let Some(p) = file_url_to_path(&u) {
+                    queue.push(p);
+                }
+            }
+        }
+    });
+    app.run(move |cx| {
             gpui_kit::init(cx);
             ordia_app::register_bindings_and_menus(cx);
 
@@ -86,9 +112,15 @@ fn main() {
                 return;
             }
 
+            let queued_from_os = finder_urls
+                .lock()
+                .ok()
+                .and_then(|mut q| if q.is_empty() { None } else { Some(q.remove(0)) });
+            let startup_path = initial_open.or(queued_from_os);
+
             let t0 = Instant::now();
             let (_handle, main_window) =
-                match ordia_app::MainWindow::open_with_path(args.open.as_deref(), cx) {
+                match ordia_app::MainWindow::open_with_path(startup_path.as_deref(), cx) {
                     Ok(opened) => opened,
                     Err(err) => {
                         eprintln!("failed to open Ordia main window: {err}");
@@ -97,11 +129,22 @@ fn main() {
                     }
                 };
             cx.activate(true);
-            let open_elapsed = t0.elapsed();
 
             if let Some(frames) = args.bench_scroll {
-                let sheet_entity = main_window.read(cx).active_sheet_view().cloned();
                 cx.spawn(async move |cx| {
+                    // Wait for background workbook loading (if `>= 2 MiB`) to complete while UI stays live.
+                    loop {
+                        let still_loading = cx.update(|cx| main_window.read(cx).loading_banner().is_some());
+                        if !still_loading {
+                            break;
+                        }
+                        cx.background_executor()
+                            .timer(Duration::from_millis(20))
+                            .await;
+                    }
+                    let open_elapsed = t0.elapsed();
+                    let sheet_entity = cx.update(|cx| main_window.read(cx).active_sheet_view().cloned());
+
                     // Allow initial window presentation to settle.
                     cx.background_executor()
                         .timer(Duration::from_millis(200))

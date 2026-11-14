@@ -269,3 +269,102 @@ fn settings_and_window_state_persist_across_restart(cx: &mut TestAppContext) {
     })
     .expect("verify session 2 restored state");
 }
+
+#[gpui_kit::test]
+fn corrupt_files_show_friendly_error_and_async_open_never_blocks_ui(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        ordia_app::register_bindings_and_menus(cx);
+    });
+
+    let temp_dir = tempfile::tempdir().expect("temp dir");
+    let corrupt_xlsx = temp_dir.path().join("damaged_archive.xlsx");
+    std::fs::write(&corrupt_xlsx, b"PK\x03\x04\x14\x00truncated-corrupt-zip")
+        .expect("write corrupt xlsx");
+
+    let legacy_xls_as_xlsx = temp_dir.path().join("legacy_biff8.xlsx");
+    std::fs::write(
+        &legacy_xls_as_xlsx,
+        [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1, 0x00, 0x01],
+    )
+    .expect("write ole2 header");
+
+    let (handle, view) = cx.update(|cx| {
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds::new(
+                    Default::default(),
+                    size(px(1200.), px(780.)),
+                ))),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| cx.new(|cx| MainWindow::new(window, cx)),
+        )
+        .expect("open headless window")
+    });
+
+    // 1. Opening a corrupt `.xlsx` and a disguised legacy `.xls` never crashes; shows dismissible localized banner.
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        let initial_tabs = view.read(cx).tabs().len();
+
+        view.update(cx, |this, cx| {
+            this.open_dropped_paths(&[corrupt_xlsx], window, cx);
+        });
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).tabs().len(), initial_tabs);
+        let err = view
+            .read(cx)
+            .open_error_banner()
+            .expect("error banner shown for corrupt xlsx");
+        assert!(err.message.contains("damaged_archive.xlsx"));
+
+        // Dismiss via UI button!
+        window.click("dismiss-open-error", cx);
+        window.render_frame(cx);
+        assert!(view.read(cx).open_error_banner().is_none());
+
+        // Disguised `.xls` binary -> friendly `.xls` conversion hint!
+        view.update(cx, |this, cx| {
+            this.open_dropped_paths(&[legacy_xls_as_xlsx], window, cx);
+        });
+        window.render_frame(cx);
+        let xls_err = view
+            .read(cx)
+            .open_error_banner()
+            .expect("error banner shown for legacy xls");
+        assert!(xls_err.message.contains(".xls"));
+    })
+    .expect("verify corrupt and legacy file handling");
+
+    // 2. Asynchronous background loading (`open_file_async`) returns immediately on the UI thread,
+    // displays the non-blocking loading progress banner while UI frames continue rendering,
+    // and opens the workbook tab once background parsing completes.
+    let sample_xlsx =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../corpus/public/m0_budget_sample.xlsx");
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |this, cx| {
+            this.open_file_async(sample_xlsx.clone(), window, cx);
+        });
+        // Immediately after `open_file_async`, the UI thread is free to render frames with the progress banner!
+        assert!(view.read(cx).loading_banner().is_some());
+        window.render_frame(cx);
+        window.click("toggle-inspector", cx);
+        window.render_frame(cx);
+        assert!(view.read(cx).is_inspector_open());
+    })
+    .expect("verify non-blocking UI frame rendering during async load");
+
+    cx.executor().run_until_parked();
+
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(view.read(cx).loading_banner().is_none());
+        assert_eq!(
+            view.read(cx).active_tab().map(|t| t.title().as_ref()),
+            Some("m0_budget_sample.xlsx")
+        );
+    })
+    .expect("verify async load completion");
+}

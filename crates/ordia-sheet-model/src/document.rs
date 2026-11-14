@@ -1,10 +1,16 @@
 //! High-level workbook document model owning a [`SheetEngine`], selection state, and undo/redo history.
 
 use crate::ops::{SheetOp, Transaction};
+use ordia_core::{
+    Document, DocumentError, DocumentKind, LoadProgress, LoadStage, atomic_write_bytes,
+    detect_document_format,
+};
 use ordia_sheet_engine::{
     CellCoord, CellRange, CellStyle, CellValue, ColSpanMetric, ColorRgba, EngineError, FontStyle,
     FreezePane, IronCalcEngine, MAX_COLS, MAX_ROWS, RowMetric, SheetEngine, SheetInfo,
 };
+use std::io::Read as _;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 
 /// File size threshold (`8 MiB`) above which `.xlsx` files use cached `<v>` values on initial open
@@ -15,6 +21,7 @@ const UNRECALCULATED_OPEN_THRESHOLD_BYTES: u64 = 8 * 1024 * 1024;
 pub struct SheetDocument {
     engine: Box<dyn SheetEngine>,
     cached_sheets: Vec<SheetInfo>,
+    document_kind: DocumentKind,
     title: String,
     source_path: Option<PathBuf>,
     active_sheet: u32,
@@ -35,6 +42,7 @@ impl SheetDocument {
         Self {
             engine,
             cached_sheets,
+            document_kind: DocumentKind::SpreadsheetXlsx,
             title: title.into(),
             source_path: None,
             active_sheet: 0,
@@ -550,4 +558,338 @@ impl SheetDocument {
         self.set_selection(pasted_range);
         Ok(Some(pasted_range))
     }
+}
+
+impl SheetDocument {
+    /// Returns the detected or assigned [`DocumentKind`].
+    #[must_use]
+    pub fn kind(&self) -> DocumentKind {
+        self.document_kind
+    }
+
+    /// Detects the file format of `path` by extension and magic bytes and opens it as a [`SheetDocument`].
+    pub fn open_auto(path: impl AsRef<Path>) -> Result<Self, DocumentError> {
+        Self::open_with_progress(path, &mut |_| {})
+    }
+
+    /// Detects the file format of `path`, reports [`LoadProgress`] milestones, and loads `.xlsx`/`.xlsm`/`.csv`/`.tsv`
+    /// while isolating any malformed archive/parser errors into [`DocumentError`] (never panicking).
+    pub fn open_with_progress(
+        path: impl AsRef<Path>,
+        on_progress: &mut dyn FnMut(LoadProgress),
+    ) -> Result<Self, DocumentError> {
+        let path_ref = path.as_ref();
+        let meta = std::fs::metadata(path_ref).map_err(|source| DocumentError::Io {
+            path: path_ref.to_path_buf(),
+            source,
+        })?;
+        let total = Some(meta.len());
+        on_progress(LoadProgress::new(LoadStage::DetectingFormat, 0, total));
+
+        let mut header = [0u8; 512];
+        let mut f = std::fs::File::open(path_ref).map_err(|source| DocumentError::Io {
+            path: path_ref.to_path_buf(),
+            source,
+        })?;
+        let header_len = f.read(&mut header).map_err(|source| DocumentError::Io {
+            path: path_ref.to_path_buf(),
+            source,
+        })?;
+        let kind = detect_document_format(path_ref, &header[..header_len])?;
+
+        on_progress(LoadProgress::new(LoadStage::ReadingBytes, 0, total));
+        let bytes = std::fs::read(path_ref).map_err(|source| DocumentError::Io {
+            path: path_ref.to_path_buf(),
+            source,
+        })?;
+        on_progress(LoadProgress::new(
+            LoadStage::ReadingBytes,
+            bytes.len() as u64,
+            total,
+        ));
+        on_progress(LoadProgress::new(
+            LoadStage::ParsingWorkbook,
+            bytes.len() as u64,
+            total,
+        ));
+
+        let title = path_ref
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Workbook.xlsx")
+            .to_string();
+
+        let mut doc = match kind {
+            DocumentKind::SpreadsheetXlsx | DocumentKind::SpreadsheetXlsm => {
+                let is_large = meta.len() >= UNRECALCULATED_OPEN_THRESHOLD_BYTES;
+                let parsed = catch_unwind(AssertUnwindSafe(|| {
+                    if is_large {
+                        IronCalcEngine::from_xlsx_bytes_unrecalculated(&bytes, &title)
+                    } else {
+                        IronCalcEngine::from_xlsx_bytes(&bytes, &title)
+                    }
+                }));
+                let engine = match parsed {
+                    Ok(Ok(engine)) => engine,
+                    Ok(Err(err)) => {
+                        return Err(DocumentError::CorruptArchive {
+                            path: path_ref.to_path_buf(),
+                            reason: err.to_string(),
+                        });
+                    }
+                    Err(_) => {
+                        return Err(DocumentError::CorruptArchive {
+                            path: path_ref.to_path_buf(),
+                            reason: "unexpected parser panic on malformed OOXML archive"
+                                .to_string(),
+                        });
+                    }
+                };
+                Self::from_engine(title, Box::new(engine))
+            }
+            DocumentKind::SpreadsheetCsv => {
+                Self::from_delimited_bytes(&title, &bytes, ',', path_ref)?
+            }
+            DocumentKind::SpreadsheetTsv => {
+                Self::from_delimited_bytes(&title, &bytes, '\t', path_ref)?
+            }
+            _ => {
+                return Err(DocumentError::UnsupportedFormat {
+                    path: path_ref.to_path_buf(),
+                    detail: format!("{kind:?}"),
+                });
+            }
+        };
+
+        doc.document_kind = kind;
+        doc.source_path = Some(path_ref.to_path_buf());
+        doc.dirty = false;
+        on_progress(LoadProgress::new(
+            LoadStage::Ready,
+            bytes.len() as u64,
+            total,
+        ));
+        Ok(doc)
+    }
+
+    fn from_delimited_bytes(
+        title: &str,
+        bytes: &[u8],
+        delimiter: char,
+        path: &Path,
+    ) -> Result<Self, DocumentError> {
+        let text = decode_text_bytes(bytes);
+        let mut engine =
+            IronCalcEngine::new_empty(title).map_err(|e| DocumentError::ParseError {
+                path: path.to_path_buf(),
+                detail: e.to_string(),
+            })?;
+        for (r_ix, row_fields) in parse_delimited_records(&text, delimiter)
+            .into_iter()
+            .enumerate()
+        {
+            if r_ix as u32 >= MAX_ROWS {
+                break;
+            }
+            for (c_ix, field) in row_fields.into_iter().enumerate() {
+                if c_ix as u32 >= MAX_COLS {
+                    break;
+                }
+                if !field.is_empty() {
+                    engine
+                        .set_cell_input_deferred(
+                            0,
+                            CellCoord::new(r_ix as u32, c_ix as u32),
+                            &field,
+                        )
+                        .map_err(|e| DocumentError::ParseError {
+                            path: path.to_path_buf(),
+                            detail: e.to_string(),
+                        })?;
+                }
+            }
+        }
+        engine.evaluate();
+        Ok(Self::from_engine(title, Box::new(engine)))
+    }
+}
+
+impl Document for SheetDocument {
+    fn document_kind(&self) -> DocumentKind {
+        self.document_kind
+    }
+
+    fn document_title(&self) -> &str {
+        &self.title
+    }
+
+    fn document_path(&self) -> Option<&Path> {
+        self.source_path.as_deref()
+    }
+
+    fn is_modified(&self) -> bool {
+        self.dirty
+    }
+
+    fn open_from_path(
+        path: &Path,
+        on_progress: &mut dyn FnMut(LoadProgress),
+    ) -> Result<Self, DocumentError> {
+        Self::open_with_progress(path, on_progress)
+    }
+
+    fn save_to_path(&mut self, path: &Path) -> Result<(), DocumentError> {
+        let ext = path
+            .extension()
+            .and_then(|s| s.to_str())
+            .map(str::to_ascii_lowercase);
+        match ext.as_deref() {
+            Some("csv") => {
+                let bytes = format_delimited_sheet(self, ',')?;
+                atomic_write_bytes(path, &bytes, |_| Ok(()))?;
+                self.document_kind = DocumentKind::SpreadsheetCsv;
+            }
+            Some("tsv") => {
+                let bytes = format_delimited_sheet(self, '\t')?;
+                atomic_write_bytes(path, &bytes, |_| Ok(()))?;
+                self.document_kind = DocumentKind::SpreadsheetTsv;
+            }
+            _ => {
+                let bytes = self
+                    .engine
+                    .to_xlsx_bytes()
+                    .map_err(|e| DocumentError::SaveFailed {
+                        path: path.to_path_buf(),
+                        detail: e.to_string(),
+                    })?;
+                atomic_write_bytes(path, &bytes, |tmp| {
+                    if !bytes.starts_with(b"PK\x03\x04") {
+                        return Err(format!(
+                            "temporary archive `{}` missing PK header",
+                            tmp.display()
+                        ));
+                    }
+                    Ok(())
+                })?;
+                if ext.as_deref() == Some("xlsm") {
+                    self.document_kind = DocumentKind::SpreadsheetXlsm;
+                } else {
+                    self.document_kind = DocumentKind::SpreadsheetXlsx;
+                }
+            }
+        }
+        if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
+            self.title = name.to_string();
+        }
+        self.source_path = Some(path.to_path_buf());
+        self.dirty = false;
+        Ok(())
+    }
+}
+
+fn decode_text_bytes(bytes: &[u8]) -> String {
+    if let Some(rest) = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]) {
+        return String::from_utf8_lossy(rest).into_owned();
+    }
+    if let Some(rest) = bytes.strip_prefix(&[0xFF, 0xFE]) {
+        let u16s: Vec<u16> = rest
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .copied()
+            .map(u16::from_le_bytes)
+            .collect();
+        return String::from_utf16_lossy(&u16s);
+    }
+    if let Some(rest) = bytes.strip_prefix(&[0xFE, 0xFF]) {
+        let u16s: Vec<u16> = rest
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .copied()
+            .map(u16::from_be_bytes)
+            .collect();
+        return String::from_utf16_lossy(&u16s);
+    }
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+fn parse_delimited_records(text: &str, delimiter: char) -> Vec<Vec<String>> {
+    let mut rows: Vec<Vec<String>> = Vec::new();
+    let mut current_row: Vec<String> = Vec::new();
+    let mut field = String::new();
+    let mut in_quotes = false;
+    let mut chars = text.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if in_quotes {
+            if ch == '"' {
+                if chars.peek() == Some(&'"') {
+                    let _ = chars.next();
+                    field.push('"');
+                } else {
+                    in_quotes = false;
+                }
+            } else {
+                field.push(ch);
+            }
+        } else if ch == '"' && field.is_empty() {
+            in_quotes = true;
+        } else if ch == delimiter {
+            current_row.push(std::mem::take(&mut field));
+        } else if ch == '\r' {
+            if chars.peek() == Some(&'\n') {
+                let _ = chars.next();
+            }
+            current_row.push(std::mem::take(&mut field));
+            rows.push(std::mem::take(&mut current_row));
+        } else if ch == '\n' {
+            current_row.push(std::mem::take(&mut field));
+            rows.push(std::mem::take(&mut current_row));
+        } else {
+            field.push(ch);
+        }
+    }
+
+    if !field.is_empty() || !current_row.is_empty() {
+        current_row.push(field);
+        rows.push(current_row);
+    }
+    rows
+}
+
+fn format_delimited_sheet(doc: &SheetDocument, delimiter: char) -> Result<Vec<u8>, DocumentError> {
+    let Some(used) = doc.active_sheet_info().and_then(|s| s.used_range) else {
+        return Ok(Vec::new());
+    };
+    let mut out = String::new();
+    for r in used.start.row..=used.end.row {
+        for c in used.start.col..=used.end.col {
+            if c > used.start.col {
+                out.push(delimiter);
+            }
+            let val = doc
+                .cell_display_text(CellCoord::new(r, c))
+                .unwrap_or_default();
+            if val.contains(delimiter)
+                || val.contains('"')
+                || val.contains('\n')
+                || val.contains('\r')
+            {
+                out.push('"');
+                for ch in val.chars() {
+                    if ch == '"' {
+                        out.push_str("\"\"");
+                    } else {
+                        out.push(ch);
+                    }
+                }
+                out.push('"');
+            } else {
+                out.push_str(&val);
+            }
+        }
+        out.push('\n');
+    }
+    Ok(out.into_bytes())
 }

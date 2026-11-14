@@ -10,6 +10,7 @@ pub use clipboard::{
 };
 pub use document::SheetDocument;
 pub use ops::{SheetOp, Transaction};
+pub use ordia_core::{Document, DocumentError, DocumentKind, LoadProgress, LoadStage};
 
 pub use ordia_sheet_engine::{
     BorderEdge, BorderLineStyle, CellBorders, CellComment, CellCoord, CellHyperlink, CellRange,
@@ -155,5 +156,58 @@ mod tests {
         assert_eq!(tsv_grid.rows.len(), 2);
         assert_eq!(tsv_grid.rows[0][0].text, "备注A\n第二行");
         assert_eq!(tsv_grid.rows[0][1].text, "99.5");
+    }
+
+    #[test]
+    fn document_trait_handles_corrupt_xlsx_and_roundtrips_xlsx_and_csv() {
+        let dir = tempfile::tempdir().expect("tempdir");
+
+        // 1. Corrupt ZIP with valid PK magic but truncated body never panics; returns CorruptArchive.
+        let corrupt_xlsx = dir.path().join("corrupt.xlsx");
+        std::fs::write(
+            &corrupt_xlsx,
+            b"PK\x03\x04\x14\x00truncated-garbage-payload",
+        )
+        .expect("write corrupt xlsx");
+        let err = SheetDocument::open_auto(&corrupt_xlsx);
+        assert!(matches!(err, Err(DocumentError::CorruptArchive { .. })));
+
+        // 2. Atomic save + open_from_path with LoadProgress stages on `.xlsx`.
+        let mut doc = SheetDocument::new_demo("Quarterly.xlsx").expect("demo");
+        doc.set_cell_input(CellCoord::new(0, 0), "营收")
+            .expect("edit A1");
+        assert!(doc.is_modified());
+
+        let saved_xlsx = dir.path().join("saved_roundtrip.xlsx");
+        doc.save_to_path(&saved_xlsx).expect("atomic save xlsx");
+        assert!(!doc.is_modified());
+        assert_eq!(doc.document_kind(), DocumentKind::SpreadsheetXlsx);
+
+        let mut stages = Vec::new();
+        let reopened = SheetDocument::open_from_path(&saved_xlsx, &mut |p| {
+            stages.push(p.stage);
+        })
+        .expect("reopen saved xlsx");
+        assert_eq!(stages.first(), Some(&LoadStage::DetectingFormat));
+        assert_eq!(stages.last(), Some(&LoadStage::Ready));
+        assert_eq!(
+            reopened
+                .cell_display_text(CellCoord::new(0, 0))
+                .expect("A1"),
+            "营收"
+        );
+
+        // 3. CSV roundtrip via `Document` trait.
+        let saved_csv = dir.path().join("export.csv");
+        let mut csv_src = reopened;
+        csv_src.save_to_path(&saved_csv).expect("save csv");
+        let csv_loaded = SheetDocument::open_auto(&saved_csv).expect("open csv");
+        assert_eq!(csv_loaded.document_kind(), DocumentKind::SpreadsheetCsv);
+        assert_eq!(
+            csv_loaded
+                .cell_display_text(CellCoord::new(0, 0))
+                .expect("csv A1"),
+            "营收"
+        );
     }
 }
