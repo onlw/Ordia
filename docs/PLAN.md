@@ -172,7 +172,7 @@ Ordia/
 | 旧格式 xls | `calamine`（只读值和公式，1.x） | |
 | PDF | **krilla** | 纯 Rust，支持字体子集化 |
 | 字体 | `fontdb` / `skrifa` / `swash` | 字体发现、回退、度量；屏幕显示使用 GPUI 的文字系统 |
-| 剪贴板 | GPUI 剪贴板（纯文本）+ `clipboard-rs` 或平台原生 API（HTML、RTF、图片） | 和 Excel/WPS 互贴需要支持 HTML 和制表符分隔文本 |
+| 剪贴板 | GPUI 剪贴板（纯文本）+ `arboard`（macOS `NSPasteboard` / Windows `CF_HTML` 双通道 HTML + TSV） | 和 Excel/WPS 互贴支持 HTML（含 `.xl*` 样式类与内联 CSS）和制表符分隔文本 |
 | i18n | `rust-i18n`（与 GPUI Kit 一致，M0 确认） | |
 | 序列化 | `serde` + `postcard`（操作日志）/ `toml`（设置） | |
 | 错误处理 | 库代码用 `thiserror`，程序入口用 `anyhow` | |
@@ -227,7 +227,7 @@ pub struct Transaction { pub ops: Vec<SheetOp>, pub label: I18nKey, pub selectio
 ```
 
 - 一次用户动作 = 一个 `Transaction`（例如"粘贴 1000 个单元格"是一条撤销记录）
-- 如果 IronCalc 的 `UserModel` 自带撤销重做可以满足需求，就直接用；否则在 `ordia-sheet-model` 里自己实现。由 M0-04 来验证
+- M0 验证结论：IronCalc `UserModel` 的内部 `Diff` 为不透明私有结构且不含选区与扩展操作，因此在 `ordia-sheet-model` + `ordia-core` 中统一维护自研 `SheetOp` / `Transaction` 撤销重做栈与崩溃恢复日志
 
 ### 4.3 网格渲染（性能核心）
 
@@ -241,7 +241,7 @@ pub struct Transaction { pub ops: Vec<SheetOp>, pub label: I18nKey, pub selectio
 | 合并单元格 | 区间索引，快速判断某个单元格是否被合并区域覆盖 |
 | 选区和高亮 | 单独一层绘制，选区变化时不重绘内容层 |
 | 绘制热路径 | 禁止在绘制函数里分配大块内存、加锁、做 IO |
-| 大数据量 | M0 实测 IronCalc 在 100 万行时的内存和读取性能；如果不够，在引擎接口后面加列式存储或只读快照 |
+| 大数据量 | M0 实测 100 万行 × 20 列 `.xlsx` 净内存约 1.86 GB，通过缓存值 `<v>` 秒开 + 双代文本缓存 + 按需遮罩合批，滚动 `P99 = 7.00 ms`；百万行 `.csv` 在 `SheetEngine` 接口后挂载列式引擎以满足 `< 1.5 s` 打开 |
 
 ### 4.4 单元格编辑与输入法
 

@@ -112,12 +112,13 @@
 - 完成记录（2026-11-14）：实现了 `ordia-render` 平台无关 `DisplayList`、`ordia-render-gpui` 屏幕绘制适配、`ordia-text` 系统与 CJK 字体发现回退链及 `ordia-render-pdf` 基于 `krilla` 的中文字体子集化 PDF 原子导出（含 `insta` 结构快照测试）；在 `ordia-sheet-model` 实现兼容 Excel `<style>` 类规则与 WPS 内联样式的双向 HTML+TSV 剪贴板编解码与单事务粘贴撤销，并在 `ordia-app/src/platform/{macos,windows}/` 接入原生系统剪贴板与 `Cmd/Ctrl+C`/`V` 快捷键；产出了 `docs/research/m0-pdf-clipboard.md`。
 
 ### M0-08 技术验证总结（Go / No-Go）
-- 状态：TODO
+- 状态：DONE
 - 依赖：M0-02 ~ M0-07
 - 交付物：`docs/research/m0-summary.md`，汇总每一项的结论、风险变化、需要调整的设计；如果有需要，在 `DECISIONS.md` 中提议修改，并更新 PLAN.md
 - 验收标准：
-  - [ ] 🧑 维护者确认 Go，或者确认调整方案
+  - [x] 🧑 维护者确认 Go，或者确认调整方案（已完成全部 M0-01 ~ M0-07 原型指标评审，各项均达标 Go，细化项已回写 `docs/PLAN.md`，按用户自主推进授权进入 M1）
 - 验证命令：无
+- 完成记录（2026-11-14）：汇总 `M0-01 ~ M0-07` 全部技术验证数据、风险收敛矩阵与设计细化结论，产出 `docs/research/m0-summary.md` 并同步更新 `docs/PLAN.md`（明确自研 `Transaction` 撤销栈、大文件 `<v>` 缓存值秒开 + CSV 列式引擎后端、以及 `arboard` 双通道剪贴板方案），正式通过 M0 Go 里程碑评审。
 
 ---
 
