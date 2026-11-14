@@ -470,4 +470,84 @@ impl SheetDocument {
         self.dirty = false;
         Ok(())
     }
+
+    /// Exports the current rectangular selection into dual TSV + HTML clipboard formats.
+    pub fn copy_selection_clipboard(&self) -> Result<crate::ClipboardPayload, EngineError> {
+        crate::export_range_clipboard(self, self.selection)
+    }
+
+    /// Pastes a [`crate::ClipboardGrid`] anchored at `top_left` as a single undoable [`Transaction`],
+    /// updating values and preserving bold/italic/background/foreground styles when present.
+    pub fn paste_clipboard_grid(
+        &mut self,
+        top_left: CellCoord,
+        grid: &crate::ClipboardGrid,
+    ) -> Result<Option<CellRange>, EngineError> {
+        if grid.is_empty() {
+            return Ok(None);
+        }
+        let mut ops = Vec::new();
+        let mut max_row = top_left.row;
+        let mut max_col = top_left.col;
+
+        for (r_off, row_cells) in grid.rows.iter().enumerate() {
+            let Some(row) = top_left.row.checked_add(r_off as u32) else {
+                break;
+            };
+            if row >= MAX_ROWS {
+                break;
+            }
+            for (c_off, cell) in row_cells.iter().enumerate() {
+                let Some(col) = top_left.col.checked_add(c_off as u32) else {
+                    break;
+                };
+                if col >= MAX_COLS {
+                    break;
+                }
+                let coord = CellCoord::new(row, col);
+                max_row = max_row.max(row);
+                max_col = max_col.max(col);
+
+                let old_input = self.engine.cell_input(self.active_sheet, coord)?;
+                if old_input != cell.text {
+                    ops.push(SheetOp::SetCellInput {
+                        sheet: self.active_sheet,
+                        coord,
+                        old_input,
+                        new_input: cell.text.clone(),
+                    });
+                }
+
+                if cell.bold || cell.italic || cell.bg_color.is_some() || cell.fg_color.is_some() {
+                    let old_style = self.engine.cell_style(self.active_sheet, coord)?;
+                    let mut new_style = old_style.clone();
+                    if cell.bold {
+                        new_style.font.bold = true;
+                    }
+                    if cell.italic {
+                        new_style.font.italic = true;
+                    }
+                    if let Some(bg) = cell.bg_color {
+                        new_style.fill_color = Some(bg);
+                    }
+                    if let Some(fg) = cell.fg_color {
+                        new_style.font.color = Some(fg);
+                    }
+                    if new_style != old_style {
+                        ops.push(SheetOp::SetCellStyle {
+                            sheet: self.active_sheet,
+                            coord,
+                            old_style: Box::new(old_style),
+                            new_style: Box::new(new_style),
+                        });
+                    }
+                }
+            }
+        }
+
+        let pasted_range = CellRange::new(top_left, CellCoord::new(max_row, max_col));
+        self.execute_transaction(Transaction::new("Paste clipboard", ops))?;
+        self.set_selection(pasted_range);
+        Ok(Some(pasted_range))
+    }
 }

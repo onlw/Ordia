@@ -23,8 +23,43 @@ use ordia_sheet_layout::{
     DEFAULT_COL_HEADER_HEIGHT_PX, DEFAULT_ROW_HEADER_WIDTH_PX, GridAxisIndex, LogicalRect,
     ViewportGeometry,
 };
-use ordia_sheet_model::{CellCoord, CellRange, FreezePane, MAX_COLS, MAX_ROWS, SheetDocument};
+use ordia_sheet_model::{
+    CellCoord, CellRange, ClipboardPayload, FreezePane, MAX_COLS, MAX_ROWS, SheetDocument,
+    parse_clipboard_payload,
+};
 use std::ops::Range;
+use std::sync::{Arc, Mutex};
+
+/// Abstraction over platform rich-clipboard (HTML + TSV) I/O injected by `ordia-app::platform`.
+pub trait SheetClipboardBridge: Send + Sync {
+    /// Writes dual-flavor spreadsheet clipboard data (`text/html` + `text/plain` TSV).
+    fn write_payload(&self, payload: &ClipboardPayload);
+    /// Reads `(optional_html, optional_tsv)` from the clipboard.
+    fn read_payload(&self) -> (Option<String>, Option<String>);
+}
+
+/// Isolated in-memory clipboard bridge used by default in headless UI tests.
+#[derive(Default)]
+pub struct InMemoryClipboardBridge {
+    last: Mutex<Option<ClipboardPayload>>,
+}
+
+impl SheetClipboardBridge for InMemoryClipboardBridge {
+    fn write_payload(&self, payload: &ClipboardPayload) {
+        if let Ok(mut guard) = self.last.lock() {
+            *guard = Some(payload.clone());
+        }
+    }
+
+    fn read_payload(&self) -> (Option<String>, Option<String>) {
+        if let Ok(guard) = self.last.lock()
+            && let Some(p) = guard.as_ref()
+        {
+            return (Some(p.html.clone()), Some(p.tsv.clone()));
+        }
+        (None, None)
+    }
+}
 
 /// Keyboard navigation and editing actions scoped to [`SheetWorkspaceView`].
 #[allow(missing_docs)]
@@ -47,6 +82,8 @@ pub mod sheet_actions {
             TogglePerfOverlay,
             UndoEdit,
             RedoEdit,
+            CopySelection,
+            PasteClipboard,
         ]
     );
 }
@@ -58,11 +95,15 @@ pub fn register_sheet_keybindings(cx: &mut App) {
     let platform_undo = [
         KeyBinding::new("cmd-z", UndoEdit, Some("OrdiaSheetGrid && !Input")),
         KeyBinding::new("cmd-shift-z", RedoEdit, Some("OrdiaSheetGrid && !Input")),
+        KeyBinding::new("cmd-c", CopySelection, Some("OrdiaSheetGrid && !Input")),
+        KeyBinding::new("cmd-v", PasteClipboard, Some("OrdiaSheetGrid && !Input")),
     ];
     #[cfg(not(target_os = "macos"))]
     let platform_undo = [
         KeyBinding::new("ctrl-z", UndoEdit, Some("OrdiaSheetGrid && !Input")),
         KeyBinding::new("ctrl-y", RedoEdit, Some("OrdiaSheetGrid && !Input")),
+        KeyBinding::new("ctrl-c", CopySelection, Some("OrdiaSheetGrid && !Input")),
+        KeyBinding::new("ctrl-v", PasteClipboard, Some("OrdiaSheetGrid && !Input")),
     ];
 
     cx.bind_keys(platform_undo);
@@ -112,6 +153,7 @@ pub struct SheetWorkspaceView {
     show_perf_overlay: bool,
     frame_tracker: FrameTimeTracker,
     text_cache: ShapedLineCache,
+    clipboard_bridge: Arc<dyn SheetClipboardBridge>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -199,7 +241,32 @@ impl SheetWorkspaceView {
             show_perf_overlay: false,
             frame_tracker: FrameTimeTracker::new(),
             text_cache: ShapedLineCache::new(),
+            clipboard_bridge: Arc::new(InMemoryClipboardBridge::default()),
             _subscriptions: vec![sub_cell, sub_formula],
+        }
+    }
+
+    /// Injects a custom [`SheetClipboardBridge`] (e.g. native macOS/Windows HTML+TSV clipboard).
+    pub fn set_clipboard_bridge(&mut self, bridge: Arc<dyn SheetClipboardBridge>) {
+        self.clipboard_bridge = bridge;
+    }
+
+    /// Copies the active selection to the configured [`SheetClipboardBridge`].
+    pub fn copy_selection(&self) {
+        if let Ok(payload) = self.document.copy_selection_clipboard() {
+            self.clipboard_bridge.write_payload(&payload);
+        }
+    }
+
+    /// Pastes clipboard contents (HTML `<table>` or TSV fallback) anchored at the active cell.
+    pub fn paste_clipboard(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let (html, tsv) = self.clipboard_bridge.read_payload();
+        let grid = parse_clipboard_payload(html.as_deref(), tsv.as_deref());
+        if !grid.is_empty() {
+            let anchor = self.document.active_cell();
+            let _ = self.document.paste_clipboard_grid(anchor, &grid);
+            self.sync_formula_bar_to_active(window, cx);
+            cx.notify();
         }
     }
 
@@ -955,6 +1022,16 @@ impl Render for SheetWorkspaceView {
                     let _ = this.document.redo();
                     this.sync_formula_bar_to_active(window, cx);
                     cx.notify();
+                }
+            }))
+            .on_action(cx.listener(|this, _: &CopySelection, _, _| {
+                if this.editing_cell.is_none() {
+                    this.copy_selection();
+                }
+            }))
+            .on_action(cx.listener(|this, _: &PasteClipboard, window, cx| {
+                if this.editing_cell.is_none() {
+                    this.paste_clipboard(window, cx);
                 }
             }))
             .on_action(cx.listener(|this, _: &TogglePerfOverlay, _, cx| {

@@ -1,5 +1,8 @@
 //! Application shell, window management, commands, settings, and platform integration for Ordia.
 
+/// Platform-specific native integrations (`macos`, `windows`).
+pub mod platform;
+
 use gpui_kit::component::{
     ActiveTheme as _, Icon, IconName, Sizable as _, StyledExt as _, Theme, ThemeMode, TitleBar,
     button::{Button, ButtonVariants as _},
@@ -185,10 +188,23 @@ impl MainWindow {
             SheetDocument::new_empty("Sales_Pipeline").expect("initialize sales workbook");
         let inv_doc = SheetDocument::new_empty("Inventory").expect("initialize inventory workbook");
 
+        let cb = platform::system_clipboard_bridge();
         let sheet_views = vec![
-            cx.new(|cx| SheetWorkspaceView::new(demo_doc, window, cx)),
-            cx.new(|cx| SheetWorkspaceView::new(sales_doc, window, cx)),
-            cx.new(|cx| SheetWorkspaceView::new(inv_doc, window, cx)),
+            cx.new(|cx| {
+                let mut v = SheetWorkspaceView::new(demo_doc, window, cx);
+                v.set_clipboard_bridge(cb.clone());
+                v
+            }),
+            cx.new(|cx| {
+                let mut v = SheetWorkspaceView::new(sales_doc, window, cx);
+                v.set_clipboard_bridge(cb.clone());
+                v
+            }),
+            cx.new(|cx| {
+                let mut v = SheetWorkspaceView::new(inv_doc, window, cx);
+                v.set_clipboard_bridge(cb.clone());
+                v
+            }),
         ];
 
         Self {
@@ -213,7 +229,12 @@ impl MainWindow {
         let sheet_count = doc.sheet_count();
         let summary = format!("{sheet_count} sheet(s) · Local workbook");
         let tabs = vec![WorkbookTab::new(1, title, summary)];
-        let sheet_views = vec![cx.new(|cx| SheetWorkspaceView::new(doc, window, cx))];
+        let cb = platform::system_clipboard_bridge();
+        let sheet_views = vec![cx.new(|cx| {
+            let mut v = SheetWorkspaceView::new(doc, window, cx);
+            v.set_clipboard_bridge(cb);
+            v
+        })];
 
         Self {
             focus_handle,
@@ -305,8 +326,12 @@ impl MainWindow {
         let doc = SheetDocument::new_empty(&title).expect("initialize empty workbook tab");
         self.tabs
             .push(WorkbookTab::new(id, title, "1 sheet · Empty workbook"));
-        self.sheet_views
-            .push(cx.new(|cx| SheetWorkspaceView::new(doc, window, cx)));
+        let cb = platform::system_clipboard_bridge();
+        self.sheet_views.push(cx.new(|cx| {
+            let mut v = SheetWorkspaceView::new(doc, window, cx);
+            v.set_clipboard_bridge(cb);
+            v
+        }));
         self.active_tab_ix = self.tabs.len().saturating_sub(1);
         cx.notify();
     }

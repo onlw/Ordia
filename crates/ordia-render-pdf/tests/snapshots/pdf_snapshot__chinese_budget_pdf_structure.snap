@@ -1,0 +1,15 @@
+---
+source: crates/ordia-render-pdf/tests/pdf_snapshot.rs
+expression: report
+---
+display_list_width: 841.89
+display_list_height: 595.28
+balanced_clips: true
+command_count: 77
+pdf_structure:
+  header_version: "%PDF-1.7"
+  has_eof_marker: true
+  page_count: 1
+  font_descriptor_count: 1
+  has_to_unicode_cmap: true
+  has_cid_font_subset: true

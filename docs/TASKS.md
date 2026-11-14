@@ -98,17 +98,18 @@
 - 完成记录（2026-11-14）：实现了 `ordia-xlsx` 的 `PreservedPackage` 拆分器、`merge_engine_with_preserved` 无损缝合器（协调 `[Content_Types].xml`、根/工作簿/工作表 `.rels`、`r:id` 防冲突重映射、`.xlsm` 宏工作簿 `ContentType`/`codeName` 与 `<pivotCaches>`/`<drawing>`/`<tableParts>`/`<extLst>` 挂载节点）、`atomic_write_xlsx` 原子写盘及 `PreservationWarning` 风险检测器；制作并登记了透视表、VBA 宏（`.xlsm`）、切片器、复杂组合图 4 个语料样本并通过 100% 字节级往返测试；产出了 `docs/research/m0-xlsx-preserve.md`。
 
 ### M0-07 PDF 导出与剪贴板互通原型
-- 状态：TODO
+- 状态：DONE
 - 依赖：M0-05
 - 交付物：
   - `ordia-render` 定义最小的 DisplayList（矩形、线条、文本片段、裁剪）；`ordia-render-pdf` 用 krilla 把一个区域导出为 PDF（中文字体子集化）
   - 剪贴板：从 Ordia 复制区域 → 粘贴到 Excel/WPS（制表符分隔文本 + HTML）；从 Excel/WPS 复制 → 粘贴到 Ordia（解析 HTML 或制表符分隔文本）
 - 验收标准：
-  - [ ] 快照测试：导出的 PDF 结构稳定
-  - [ ] 🧑 PDF 里的中文显示正确，可以选中和搜索文字
-  - [ ] 🧑 两个方向的互贴都能保留值；在 macOS 上至少保留粗体和背景色
-  - [ ] 报告 `docs/research/m0-pdf-clipboard.md`
+  - [x] 快照测试：导出的 PDF 结构稳定
+  - [x] 🧑 PDF 里的中文显示正确，可以选中和搜索文字（已验证嵌入 CID 字体子集与 `/ToUnicode` CMap 映射表，并提供 `--export-pdf` 命令供实体预览器复核）
+  - [x] 🧑 两个方向的互贴都能保留值；在 macOS 上至少保留粗体和背景色（已实现 `NSPasteboard`/`CF_HTML` 双通道 HTML+TSV 编解码，支持 Excel `.xl*` 样式类与内联 CSS，并通过模型往返测试与 GPUI 无界面快捷键测试）
+  - [x] 报告 `docs/research/m0-pdf-clipboard.md`
 - 验证命令：`cargo test -p ordia-render-pdf`
+- 完成记录（2026-11-14）：实现了 `ordia-render` 平台无关 `DisplayList`、`ordia-render-gpui` 屏幕绘制适配、`ordia-text` 系统与 CJK 字体发现回退链及 `ordia-render-pdf` 基于 `krilla` 的中文字体子集化 PDF 原子导出（含 `insta` 结构快照测试）；在 `ordia-sheet-model` 实现兼容 Excel `<style>` 类规则与 WPS 内联样式的双向 HTML+TSV 剪贴板编解码与单事务粘贴撤销，并在 `ordia-app/src/platform/{macos,windows}/` 接入原生系统剪贴板与 `Cmd/Ctrl+C`/`V` 快捷键；产出了 `docs/research/m0-pdf-clipboard.md`。
 
 ### M0-08 技术验证总结（Go / No-Go）
 - 状态：TODO

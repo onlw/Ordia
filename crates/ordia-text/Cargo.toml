@@ -7,5 +7,9 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
+[dependencies]
+fontdb.workspace = true
+thiserror.workspace = true
+
 [lints]
 workspace = true

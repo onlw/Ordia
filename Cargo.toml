@@ -71,7 +71,8 @@ ironcalc_base = "=0.9.1"
 zip = { version = "9.0", default-features = false, features = ["deflate"] }
 quick-xml = "0.42"
 
-# Text, PDF, and raster rendering
+# Text, PDF, clipboard, and raster rendering
+arboard = { version = "3.7", default-features = false }
 fontdb = "0.24"
 krilla = "0.8"
 tiny-skia = "0.12"

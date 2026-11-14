@@ -8,6 +8,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+gpui-kit.workspace = true
 ordia-render.workspace = true
 
 [lints]

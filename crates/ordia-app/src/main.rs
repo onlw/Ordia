@@ -19,10 +19,43 @@ struct CliArgs {
     /// Runs an automated scroll benchmark across `<FRAMES>` frames on the open workbook and exits.
     #[arg(long)]
     bench_scroll: Option<usize>,
+
+    /// Exports the active worksheet's used range to `<EXPORT_PDF>` with subsetted CJK fonts and exits.
+    #[arg(long)]
+    export_pdf: Option<PathBuf>,
 }
 
 fn main() {
     let args = CliArgs::parse();
+
+    if let Some(pdf_out) = args.export_pdf.as_ref() {
+        let doc = match args.open.as_deref() {
+            Some(p) => ordia_sheet_model::SheetDocument::open_xlsx(p),
+            None => ordia_sheet_model::SheetDocument::new_demo("Budget_2026"),
+        }
+        .unwrap_or_else(|err| {
+            eprintln!("failed to open workbook for PDF export: {err}");
+            std::process::exit(1);
+        });
+        let range = doc
+            .active_sheet_info()
+            .and_then(|s| s.used_range)
+            .unwrap_or_else(|| {
+                ordia_sheet_model::CellRange::new(
+                    ordia_sheet_model::CellCoord::new(0, 0),
+                    ordia_sheet_model::CellCoord::new(10, 5),
+                )
+            });
+        let fonts = ordia_text::FontCatalog::from_system();
+        let opts = ordia_render_pdf::PdfExportOptions::default();
+        if let Err(err) =
+            ordia_render_pdf::export_sheet_range_to_pdf_file(&doc, range, &opts, &fonts, pdf_out)
+        {
+            eprintln!("PDF export failed: {err}");
+            std::process::exit(1);
+        }
+        return;
+    }
 
     gpui_kit::application()
         .with_assets(gpui_kit::assets::AllAssets)

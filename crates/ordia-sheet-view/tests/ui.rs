@@ -334,3 +334,65 @@ fn million_row_virtualized_scrolling_keeps_frozen_panes_pinned(cx: &mut TestAppC
         assert!(state.frame_stats().total_frames >= 3);
     });
 }
+
+#[gpui_kit::test]
+fn copy_and_paste_shortcut_preserves_values_bold_and_background_color(cx: &mut TestAppContext) {
+    let (handle, entity) = cx.update(|cx| {
+        gpui_kit::init(cx);
+        register_sheet_keybindings(cx);
+        let doc = SheetDocument::new_demo("ClipboardUi.xlsx").expect("demo doc");
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds::new(
+                    point(px(0.0), px(0.0)),
+                    size(px(960.0), px(640.0)),
+                ))),
+                ..WindowOptions::default()
+            },
+            cx,
+            |window, cx| cx.new(|cx| SheetWorkspaceView::new(doc, window, cx)),
+        )
+        .expect("open headless clipboard window")
+    });
+
+    #[cfg(target_os = "macos")]
+    let (copy_key, paste_key) = ("cmd-c", "cmd-v");
+    #[cfg(not(target_os = "macos"))]
+    let (copy_key, paste_key) = ("ctrl-c", "ctrl-v");
+
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        entity.update(cx, |state, cx| {
+            state.select_cell(CellCoord::new(0, 0), window, cx);
+            state.set_selection_range(CellCoord::new(0, 0), CellCoord::new(1, 1), cx);
+        });
+        window.render_frame(cx);
+        window.press(copy_key, cx);
+
+        entity.update(cx, |state, cx| {
+            state.select_cell(CellCoord::new(8, 0), window, cx);
+        });
+        window.render_frame(cx);
+        window.press(paste_key, cx);
+    })
+    .expect("execute copy and paste shortcuts");
+
+    cx.update(|cx| {
+        let state = entity.read(cx);
+        let doc = state.document();
+        assert_eq!(
+            doc.cell_display_text(CellCoord::new(8, 0)).expect("A9"),
+            "项目 / Item"
+        );
+        assert_eq!(
+            doc.cell_display_text(CellCoord::new(9, 1)).expect("B10"),
+            "1280"
+        );
+        let style = doc.cell_style(CellCoord::new(8, 0)).expect("A9 style");
+        assert!(style.font.bold);
+        assert_eq!(
+            style.fill_color,
+            Some(ordia_sheet_model::ColorRgba::rgb(241, 245, 249))
+        );
+    });
+}

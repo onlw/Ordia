@@ -19,16 +19,18 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
+arboard.workspace = true
 clap.workspace = true
 gpui-kit.workspace = true
 ordia-core.workspace = true
 ordia-i18n.workspace = true
+ordia-render-pdf.workspace = true
+ordia-text.workspace = true
 ordia-ui.workspace = true
 ordia-sheet-model.workspace = true
 ordia-sheet-view.workspace = true
 ordia-xlsx.workspace = true
 ordia-csv.workspace = true
-ordia-render-pdf.workspace = true
 
 [dev-dependencies]
 gpui-kit = { workspace = true, features = ["test-support"] }
