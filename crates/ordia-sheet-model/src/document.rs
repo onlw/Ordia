@@ -1,0 +1,473 @@
+//! High-level workbook document model owning a [`SheetEngine`], selection state, and undo/redo history.
+
+use crate::ops::{SheetOp, Transaction};
+use ordia_sheet_engine::{
+    CellCoord, CellRange, CellStyle, CellValue, ColSpanMetric, ColorRgba, EngineError, FontStyle,
+    FreezePane, IronCalcEngine, MAX_COLS, MAX_ROWS, RowMetric, SheetEngine, SheetInfo,
+};
+use std::path::{Path, PathBuf};
+
+/// File size threshold (`8 MiB`) above which `.xlsx` files use cached `<v>` values on initial open
+/// to avoid blocking first paint with a full multi-million-cell recalculation.
+const UNRECALCULATED_OPEN_THRESHOLD_BYTES: u64 = 8 * 1024 * 1024;
+
+/// Stateful spreadsheet workbook model mediating all reads and [`Transaction`]-based mutations.
+pub struct SheetDocument {
+    engine: Box<dyn SheetEngine>,
+    cached_sheets: Vec<SheetInfo>,
+    title: String,
+    source_path: Option<PathBuf>,
+    active_sheet: u32,
+    active_cell: CellCoord,
+    selection: CellRange,
+    dirty: bool,
+    revision: u64,
+    layout_revision: u64,
+    undo_stack: Vec<Transaction>,
+    redo_stack: Vec<Transaction>,
+}
+
+impl SheetDocument {
+    /// Wraps an existing [`SheetEngine`] implementation.
+    #[must_use]
+    pub fn from_engine(title: impl Into<String>, engine: Box<dyn SheetEngine>) -> Self {
+        let cached_sheets = engine.sheets();
+        Self {
+            engine,
+            cached_sheets,
+            title: title.into(),
+            source_path: None,
+            active_sheet: 0,
+            active_cell: CellCoord::new(0, 0),
+            selection: CellRange::single(CellCoord::new(0, 0)),
+            dirty: false,
+            revision: 1,
+            layout_revision: 1,
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+        }
+    }
+
+    /// Creates a blank workbook with a single empty worksheet.
+    pub fn new_empty(title: impl Into<String>) -> Result<Self, EngineError> {
+        let title_str = title.into();
+        let engine = IronCalcEngine::new_empty(&title_str)?;
+        Ok(Self::from_engine(title_str, Box::new(engine)))
+    }
+
+    /// Creates a starter demonstration workbook showcasing frozen headers, bilingual text, and formulas.
+    pub fn new_demo(title: impl Into<String>) -> Result<Self, EngineError> {
+        let mut doc = Self::new_empty(title)?;
+        let header_style = CellStyle {
+            font: FontStyle {
+                bold: true,
+                ..FontStyle::default()
+            },
+            fill_color: Some(ColorRgba::rgb(241, 245, 249)),
+            ..CellStyle::default()
+        };
+
+        let headers = ["项目 / Item", "Q1", "Q2", "Q3", "Q4", "全年合计 / Total"];
+        let mut ops = Vec::new();
+        for (col_ix, label) in headers.iter().enumerate() {
+            let coord = CellCoord::new(0, col_ix as u32);
+            ops.push(SheetOp::SetCellInput {
+                sheet: 0,
+                coord,
+                old_input: String::new(),
+                new_input: (*label).to_string(),
+            });
+            ops.push(SheetOp::SetCellStyle {
+                sheet: 0,
+                coord,
+                old_style: Box::new(CellStyle::default()),
+                new_style: Box::new(header_style.clone()),
+            });
+        }
+
+        let rows: &[(&str, [i32; 4])] = &[
+            ("订阅收入 / Subscription", [1280, 1420, 1590, 1810]),
+            ("企业授权 / Enterprise", [860, 920, 1050, 1240]),
+            ("云服务成本 / Cloud Cost", [-210, -225, -240, -265]),
+            ("研发投入 / R&D", [-540, -560, -580, -610]),
+        ];
+
+        for (r_offset, (name, quarters)) in rows.iter().enumerate() {
+            let row = (r_offset + 1) as u32;
+            ops.push(SheetOp::SetCellInput {
+                sheet: 0,
+                coord: CellCoord::new(row, 0),
+                old_input: String::new(),
+                new_input: (*name).to_string(),
+            });
+            for (q_ix, val) in quarters.iter().enumerate() {
+                ops.push(SheetOp::SetCellInput {
+                    sheet: 0,
+                    coord: CellCoord::new(row, (q_ix + 1) as u32),
+                    old_input: String::new(),
+                    new_input: val.to_string(),
+                });
+            }
+            let excel_row = row + 1;
+            ops.push(SheetOp::SetCellInput {
+                sheet: 0,
+                coord: CellCoord::new(row, 5),
+                old_input: String::new(),
+                new_input: format!("=SUM(B{excel_row}:E{excel_row})"),
+            });
+        }
+
+        // Summary net row
+        let total_row = 5u32;
+        ops.push(SheetOp::SetCellInput {
+            sheet: 0,
+            coord: CellCoord::new(total_row, 0),
+            old_input: String::new(),
+            new_input: "净收益 / Net".to_string(),
+        });
+        for col in 1..=5u32 {
+            let col_letter = ordia_sheet_engine::col_to_letters(col);
+            ops.push(SheetOp::SetCellInput {
+                sheet: 0,
+                coord: CellCoord::new(total_row, col),
+                old_input: String::new(),
+                new_input: format!("=SUM({col_letter}2:{col_letter}5)"),
+            });
+        }
+
+        ops.push(SheetOp::SetColWidth {
+            sheet: 0,
+            col: 0,
+            old_width_px: ordia_sheet_engine::DEFAULT_COL_WIDTH_PX,
+            new_width_px: 180.0,
+        });
+        ops.push(SheetOp::SetColWidth {
+            sheet: 0,
+            col: 5,
+            old_width_px: ordia_sheet_engine::DEFAULT_COL_WIDTH_PX,
+            new_width_px: 136.0,
+        });
+        ops.push(SheetOp::SetFreezePane {
+            sheet: 0,
+            old_freeze: FreezePane::default(),
+            new_freeze: FreezePane {
+                frozen_rows: 1,
+                frozen_cols: 1,
+            },
+        });
+
+        doc.execute_transaction(Transaction::new("Initialize demo sheet", ops))?;
+        doc.undo_stack.clear();
+        doc.dirty = false;
+        doc.set_active_cell(CellCoord::new(1, 1));
+        Ok(doc)
+    }
+
+    /// Opens an `.xlsx` workbook from disk.
+    ///
+    /// Large workbooks above 8 MiB load cached `<v>` values immediately via
+    /// [`IronCalcEngine::from_xlsx_bytes_unrecalculated`] so 1M-row sheets render without waiting
+    /// for an upfront full recalculation; subsequent edits recalculate normally.
+    pub fn open_xlsx(path: impl AsRef<Path>) -> Result<Self, EngineError> {
+        let path_ref = path.as_ref();
+        let meta = std::fs::metadata(path_ref)?;
+        let title = path_ref
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Workbook.xlsx")
+            .to_string();
+        let engine = if meta.len() >= UNRECALCULATED_OPEN_THRESHOLD_BYTES {
+            let bytes = std::fs::read(path_ref)?;
+            IronCalcEngine::from_xlsx_bytes_unrecalculated(&bytes, &title)?
+        } else {
+            IronCalcEngine::from_xlsx_path(path_ref)?
+        };
+        let mut doc = Self::from_engine(title, Box::new(engine));
+        doc.source_path = Some(path_ref.to_path_buf());
+        Ok(doc)
+    }
+
+    /// Display title of the workbook.
+    #[must_use]
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
+    /// Source file path if opened from or saved to disk.
+    #[must_use]
+    pub fn source_path(&self) -> Option<&Path> {
+        self.source_path.as_deref()
+    }
+
+    /// Returns `true` if unsaved transactions have been applied.
+    #[must_use]
+    pub fn is_dirty(&self) -> bool {
+        self.dirty
+    }
+
+    /// Monotonically increasing revision counter incremented on every content/style/layout mutation.
+    #[must_use]
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    /// Monotonically increasing counter incremented when row heights, column widths, freeze panes,
+    /// or active worksheet change (used by views to invalidate cached coordinate indices).
+    #[must_use]
+    pub fn layout_revision(&self) -> u64 {
+        self.layout_revision
+    }
+
+    /// Total number of worksheets in the workbook.
+    #[must_use]
+    pub fn sheet_count(&self) -> usize {
+        self.engine.sheet_count()
+    }
+
+    /// Zero-based index of the currently active worksheet.
+    #[must_use]
+    pub fn active_sheet(&self) -> u32 {
+        self.active_sheet
+    }
+
+    /// Switches the active worksheet tab if valid.
+    pub fn set_active_sheet(&mut self, sheet: u32) -> bool {
+        if (sheet as usize) < self.engine.sheet_count() && self.active_sheet != sheet {
+            self.active_sheet = sheet;
+            self.active_cell = CellCoord::new(0, 0);
+            self.selection = CellRange::single(self.active_cell);
+            self.layout_revision += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Currently focused cell coordinate on the active worksheet.
+    #[must_use]
+    pub fn active_cell(&self) -> CellCoord {
+        self.active_cell
+    }
+
+    /// Current rectangular selection range on the active worksheet.
+    #[must_use]
+    pub fn selection(&self) -> CellRange {
+        self.selection
+    }
+
+    /// Moves the active cell and resets the selection to that single cell (clamped to sheet bounds).
+    pub fn set_active_cell(&mut self, coord: CellCoord) {
+        let clamped = CellCoord::new(
+            coord.row.min(MAX_ROWS.saturating_sub(1)),
+            coord.col.min(MAX_COLS.saturating_sub(1)),
+        );
+        self.active_cell = clamped;
+        self.selection = CellRange::single(clamped);
+    }
+
+    /// Extends or sets the rectangular selection range while keeping `active_cell` inside `range`.
+    pub fn set_selection(&mut self, range: CellRange) {
+        let clamped = CellRange::new(
+            CellCoord::new(
+                range.start.row.min(MAX_ROWS.saturating_sub(1)),
+                range.start.col.min(MAX_COLS.saturating_sub(1)),
+            ),
+            CellCoord::new(
+                range.end.row.min(MAX_ROWS.saturating_sub(1)),
+                range.end.col.min(MAX_COLS.saturating_sub(1)),
+            ),
+        );
+        self.selection = clamped;
+        if !clamped.contains(self.active_cell) {
+            self.active_cell = clamped.start;
+        }
+    }
+
+    /// Moves the active cell by `(delta_row, delta_col)` clamped to `[0..MAX_ROWS, 0..MAX_COLS]`.
+    pub fn move_active_cell(&mut self, delta_row: i32, delta_col: i32) -> CellCoord {
+        let next_row = (i64::from(self.active_cell.row) + i64::from(delta_row))
+            .clamp(0, i64::from(MAX_ROWS - 1)) as u32;
+        let next_col = (i64::from(self.active_cell.col) + i64::from(delta_col))
+            .clamp(0, i64::from(MAX_COLS - 1)) as u32;
+        let next = CellCoord::new(next_row, next_col);
+        self.set_active_cell(next);
+        next
+    }
+
+    /// Metadata for all worksheets in the workbook (cached in `O(1)` without rescanning cells).
+    #[must_use]
+    pub fn sheets(&self) -> &[SheetInfo] {
+        &self.cached_sheets
+    }
+
+    /// Metadata for the currently active worksheet, if available (`O(1)`).
+    #[must_use]
+    pub fn active_sheet_info(&self) -> Option<&SheetInfo> {
+        self.cached_sheets
+            .iter()
+            .find(|s| s.index == self.active_sheet)
+    }
+
+    fn expand_cached_used_range(&mut self, tx: &Transaction) {
+        for op in &tx.ops {
+            if let SheetOp::SetCellInput {
+                sheet,
+                coord,
+                new_input,
+                ..
+            } = op
+                && !new_input.is_empty()
+                && let Some(info) = self.cached_sheets.iter_mut().find(|s| s.index == *sheet)
+            {
+                info.used_range = Some(match info.used_range {
+                    Some(existing) => CellRange::new(
+                        CellCoord::new(
+                            existing.start.row.min(coord.row),
+                            existing.start.col.min(coord.col),
+                        ),
+                        CellCoord::new(
+                            existing.end.row.max(coord.row),
+                            existing.end.col.max(coord.col),
+                        ),
+                    ),
+                    None => CellRange::single(*coord),
+                });
+            }
+        }
+    }
+
+    /// Reads the formatted display text of `coord` on the active worksheet.
+    pub fn cell_display_text(&self, coord: CellCoord) -> Result<String, EngineError> {
+        self.engine.cell_display_text(self.active_sheet, coord)
+    }
+
+    /// Reads the evaluated [`CellValue`] of `coord` on the active worksheet.
+    pub fn cell_value(&self, coord: CellCoord) -> Result<CellValue, EngineError> {
+        self.engine.cell_value(self.active_sheet, coord)
+    }
+
+    /// Reads the raw editable input string (formula or literal) of `coord` on the active worksheet.
+    pub fn cell_input(&self, coord: CellCoord) -> Result<String, EngineError> {
+        self.engine.cell_input(self.active_sheet, coord)
+    }
+
+    /// Reads the effective [`CellStyle`] of `coord` on the active worksheet.
+    pub fn cell_style(&self, coord: CellCoord) -> Result<CellStyle, EngineError> {
+        self.engine.cell_style(self.active_sheet, coord)
+    }
+
+    /// Returns the [`FreezePane`] settings of the active worksheet.
+    pub fn freeze_pane(&self) -> Result<FreezePane, EngineError> {
+        self.engine.freeze_pane(self.active_sheet)
+    }
+
+    /// Returns sparse row height/visibility overrides for the active worksheet.
+    pub fn custom_row_metrics(&self) -> Result<Vec<RowMetric>, EngineError> {
+        self.engine.custom_row_metrics(self.active_sheet)
+    }
+
+    /// Returns sparse column span width/visibility overrides for the active worksheet.
+    pub fn custom_col_metrics(&self) -> Result<Vec<ColSpanMetric>, EngineError> {
+        self.engine.custom_col_metrics(self.active_sheet)
+    }
+
+    /// Applies a [`Transaction`], records it on the undo stack, clears the redo stack, and bumps revisions.
+    pub fn execute_transaction(&mut self, tx: Transaction) -> Result<(), EngineError> {
+        if tx.ops.is_empty() {
+            return Ok(());
+        }
+        let touches_layout = tx.ops.iter().any(|op| {
+            matches!(
+                op,
+                SheetOp::SetFreezePane { .. }
+                    | SheetOp::SetRowHeight { .. }
+                    | SheetOp::SetColWidth { .. }
+            )
+        });
+        tx.apply(self.engine.as_mut())?;
+        self.expand_cached_used_range(&tx);
+        self.undo_stack.push(tx);
+        self.redo_stack.clear();
+        self.dirty = true;
+        self.revision += 1;
+        if touches_layout {
+            self.layout_revision += 1;
+        }
+        Ok(())
+    }
+
+    /// Convenience helper that builds and executes a [`SheetOp::SetCellInput`] transaction on the active sheet.
+    pub fn set_cell_input(&mut self, coord: CellCoord, new_input: &str) -> Result<(), EngineError> {
+        let old_input = self.engine.cell_input(self.active_sheet, coord)?;
+        if old_input == new_input {
+            return Ok(());
+        }
+        let tx = Transaction::single(
+            format!("Edit {coord}"),
+            SheetOp::SetCellInput {
+                sheet: self.active_sheet,
+                coord,
+                old_input,
+                new_input: new_input.to_string(),
+            },
+        );
+        self.execute_transaction(tx)
+    }
+
+    /// Undoes the most recent transaction, returning `true` if an operation was undone.
+    pub fn undo(&mut self) -> Result<bool, EngineError> {
+        let Some(tx) = self.undo_stack.pop() else {
+            return Ok(false);
+        };
+        let inv = tx.inverse();
+        let touches_layout = inv.ops.iter().any(|op| {
+            matches!(
+                op,
+                SheetOp::SetFreezePane { .. }
+                    | SheetOp::SetRowHeight { .. }
+                    | SheetOp::SetColWidth { .. }
+            )
+        });
+        inv.apply(self.engine.as_mut())?;
+        self.redo_stack.push(tx);
+        self.dirty = !self.undo_stack.is_empty();
+        self.revision += 1;
+        if touches_layout {
+            self.layout_revision += 1;
+        }
+        Ok(true)
+    }
+
+    /// Redoes the most recently undone transaction, returning `true` if an operation was redone.
+    pub fn redo(&mut self) -> Result<bool, EngineError> {
+        let Some(tx) = self.redo_stack.pop() else {
+            return Ok(false);
+        };
+        let touches_layout = tx.ops.iter().any(|op| {
+            matches!(
+                op,
+                SheetOp::SetFreezePane { .. }
+                    | SheetOp::SetRowHeight { .. }
+                    | SheetOp::SetColWidth { .. }
+            )
+        });
+        tx.apply(self.engine.as_mut())?;
+        self.expand_cached_used_range(&tx);
+        self.undo_stack.push(tx);
+        self.dirty = true;
+        self.revision += 1;
+        if touches_layout {
+            self.layout_revision += 1;
+        }
+        Ok(true)
+    }
+
+    /// Atomically saves the workbook to `path` and clears the dirty flag.
+    pub fn save_xlsx(&mut self, path: impl AsRef<Path>) -> Result<(), EngineError> {
+        let path_ref = path.as_ref();
+        self.engine.save_xlsx(path_ref)?;
+        self.source_path = Some(path_ref.to_path_buf());
+        self.dirty = false;
+        Ok(())
+    }
+}

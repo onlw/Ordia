@@ -8,10 +8,14 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+gpui-kit.workspace = true
 ordia-render.workspace = true
 ordia-render-gpui.workspace = true
 ordia-sheet-model.workspace = true
 ordia-sheet-layout.workspace = true
+
+[dev-dependencies]
+gpui-kit = { workspace = true, features = ["test-support"] }
 
 [lints]
 workspace = true

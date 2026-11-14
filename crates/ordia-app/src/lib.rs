@@ -17,6 +17,9 @@ use gpui_kit::{
     IntoElement, KeyBinding, Menu, MenuItem, ParentElement as _, Render, SharedString, Styled as _,
     Window, WindowBounds, WindowOptions, div, px, size,
 };
+use ordia_sheet_model::SheetDocument;
+use ordia_sheet_view::{SheetWorkspaceView, register_sheet_keybindings};
+use std::path::Path;
 
 /// Keyboard and menu command actions for the application shell.
 #[allow(missing_docs)]
@@ -99,6 +102,7 @@ pub fn register_bindings_and_menus(cx: &mut App) {
     ];
 
     cx.bind_keys(bindings);
+    register_sheet_keybindings(cx);
 
     cx.on_action(|_: &Quit, cx| {
         cx.quit();
@@ -138,21 +142,23 @@ pub fn default_window_options(cx: &App) -> WindowOptions {
     options
 }
 
-/// Main window view for the M0-02 GPUI Kit shell prototype.
+/// Main window view for the Ordia desktop shell.
 ///
-/// Owns sidebar collapse state, navigation section, open workbook tabs, and keyboard focus.
+/// Owns sidebar collapse state, navigation section, open workbook tabs, their embedded
+/// [`SheetWorkspaceView`] entities, and keyboard focus.
 pub struct MainWindow {
     focus_handle: FocusHandle,
     sidebar_collapsed: bool,
     active_section: SidebarSection,
     tabs: Vec<WorkbookTab>,
+    sheet_views: Vec<Entity<SheetWorkspaceView>>,
     active_tab_ix: usize,
     next_tab_id: u64,
 }
 
 impl MainWindow {
     /// Constructs a new main window view with starter workbook tabs.
-    pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus_handle = cx.focus_handle().tab_stop(true);
         let tabs = vec![
             WorkbookTab::new(
@@ -172,22 +178,81 @@ impl MainWindow {
             ),
         ];
 
+        let demo_doc = SheetDocument::new_demo("Budget_2026")
+            .or_else(|_| SheetDocument::new_empty("Budget_2026"))
+            .expect("initialize starter demo workbook");
+        let sales_doc =
+            SheetDocument::new_empty("Sales_Pipeline").expect("initialize sales workbook");
+        let inv_doc = SheetDocument::new_empty("Inventory").expect("initialize inventory workbook");
+
+        let sheet_views = vec![
+            cx.new(|cx| SheetWorkspaceView::new(demo_doc, window, cx)),
+            cx.new(|cx| SheetWorkspaceView::new(sales_doc, window, cx)),
+            cx.new(|cx| SheetWorkspaceView::new(inv_doc, window, cx)),
+        ];
+
         Self {
             focus_handle,
             sidebar_collapsed: false,
             active_section: SidebarSection::Recent,
             tabs,
+            sheet_views,
             active_tab_ix: 0,
             next_tab_id: 4,
         }
     }
 
+    /// Constructs a main window pre-loaded with a specific [`SheetDocument`].
+    pub fn new_with_document(
+        doc: SheetDocument,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let focus_handle = cx.focus_handle().tab_stop(true);
+        let title = doc.title().to_string();
+        let sheet_count = doc.sheet_count();
+        let summary = format!("{sheet_count} sheet(s) · Local workbook");
+        let tabs = vec![WorkbookTab::new(1, title, summary)];
+        let sheet_views = vec![cx.new(|cx| SheetWorkspaceView::new(doc, window, cx))];
+
+        Self {
+            focus_handle,
+            sidebar_collapsed: true,
+            active_section: SidebarSection::Recent,
+            tabs,
+            sheet_views,
+            active_tab_ix: 0,
+            next_tab_id: 2,
+        }
+    }
+
     /// Creates and opens a main window wrapped in GPUI Kit's `Root`.
     pub fn open(cx: &mut App) -> anyhow::Result<(gpui_kit::AnyWindowHandle, Entity<Self>)> {
+        Self::open_with_path(None, cx)
+    }
+
+    /// Creates and opens a main window, optionally loading an `.xlsx` file from `path`.
+    pub fn open_with_path(
+        path: Option<&Path>,
+        cx: &mut App,
+    ) -> anyhow::Result<(gpui_kit::AnyWindowHandle, Entity<Self>)> {
+        let preloaded = match path {
+            Some(p) => Some(SheetDocument::open_xlsx(p)?),
+            None => None,
+        };
         let options = default_window_options(cx);
-        let opened =
-            gpui_kit::open_window(options, cx, |window, cx| cx.new(|cx| Self::new(window, cx)))?;
+        let opened = gpui_kit::open_window(options, cx, move |window, cx| {
+            cx.new(|cx| match preloaded {
+                Some(doc) => Self::new_with_document(doc, window, cx),
+                None => Self::new(window, cx),
+            })
+        })?;
         Ok(opened)
+    }
+
+    /// Returns the embedded [`SheetWorkspaceView`] for the currently active tab, if any.
+    pub fn active_sheet_view(&self) -> Option<&Entity<SheetWorkspaceView>> {
+        self.sheet_views.get(self.active_tab_ix)
     }
 
     /// Returns whether the navigation sidebar is collapsed.
@@ -233,14 +298,15 @@ impl MainWindow {
     }
 
     /// Appends a new blank workbook tab and makes it active.
-    pub fn add_workbook_tab(&mut self, cx: &mut Context<Self>) {
+    pub fn add_workbook_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let id = self.next_tab_id;
         self.next_tab_id += 1;
-        self.tabs.push(WorkbookTab::new(
-            id,
-            format!("Book{id}.xlsx"),
-            "1 sheet · Empty workbook",
-        ));
+        let title = format!("Book{id}.xlsx");
+        let doc = SheetDocument::new_empty(&title).expect("initialize empty workbook tab");
+        self.tabs
+            .push(WorkbookTab::new(id, title, "1 sheet · Empty workbook"));
+        self.sheet_views
+            .push(cx.new(|cx| SheetWorkspaceView::new(doc, window, cx)));
         self.active_tab_ix = self.tabs.len().saturating_sub(1);
         cx.notify();
     }
@@ -310,8 +376,8 @@ impl MainWindow {
                                             .xsmall()
                                             .icon(IconName::Plus)
                                             .tooltip("New workbook")
-                                            .on_click(cx.listener(|this, _, _, cx| {
-                                                this.add_workbook_tab(cx);
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                this.add_workbook_tab(window, cx);
                                             })),
                                     ),
                             ),
@@ -409,87 +475,15 @@ impl MainWindow {
     }
 
     fn render_workspace_content(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let (title, summary) = self
-            .active_tab()
-            .map(|t| (t.title().clone(), t.summary().clone()))
-            .unwrap_or_else(|| ("Untitled.xlsx".into(), "Empty workbook".into()));
-
-        let mode_text = if cx.theme().mode.is_dark() {
-            "Dark theme"
-        } else {
-            "Light theme"
-        };
+        let active_sheet = self.active_sheet_view().cloned();
 
         v_flex()
             .h_full()
             .flex_1()
             .min_w_0()
             .min_h_0()
-            .p_4()
-            .gap_3()
             .bg(cx.theme().background)
-            .child(
-                h_flex()
-                    .justify_between()
-                    .gap_2()
-                    .pb_2()
-                    .border_b_1()
-                    .border_color(cx.theme().border)
-                    .child(
-                        v_flex()
-                            .gap_1()
-                            .min_w_0()
-                            .child(
-                                div()
-                                    .id("active-workbook-title")
-                                    .text_lg()
-                                    .font_semibold()
-                                    .text_color(cx.theme().foreground)
-                                    .child(title),
-                            )
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(summary),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .px_2()
-                            .py_1()
-                            .rounded(cx.theme().radius)
-                            .bg(cx.theme().secondary)
-                            .text_color(cx.theme().secondary_foreground)
-                            .child(mode_text),
-                    ),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .rounded(cx.theme().radius)
-                    .border_1()
-                    .border_color(cx.theme().border)
-                    .p_4()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .child(
-                        div()
-                            .text_sm()
-                            .font_medium()
-                            .text_color(cx.theme().foreground)
-                            .child("Spreadsheet canvas slot"),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("Virtualized GPU grid element attaches here in M0-05 / M2."),
-                    ),
-            )
+            .when_some(active_sheet, |el, sheet_view| el.child(sheet_view))
     }
 }
 
@@ -511,8 +505,8 @@ impl Render for MainWindow {
             .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| {
                 this.toggle_sidebar(cx);
             }))
-            .on_action(cx.listener(|this, _: &NewWorkbookTab, _, cx| {
-                this.add_workbook_tab(cx);
+            .on_action(cx.listener(|this, _: &NewWorkbookTab, window, cx| {
+                this.add_workbook_tab(window, cx);
             }))
             .size_full()
             .bg(cx.theme().background)

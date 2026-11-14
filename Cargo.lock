@@ -5212,6 +5212,7 @@ name = "ordia-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "clap",
  "gpui-kit",
  "ordia-core",
  "ordia-csv",
@@ -5307,12 +5308,14 @@ version = "0.1.0"
 dependencies = [
  "ordia-core",
  "ordia-sheet-engine",
+ "serde",
 ]
 
 [[package]]
 name = "ordia-sheet-view"
 version = "0.1.0"
 dependencies = [
+ "gpui-kit",
  "ordia-render",
  "ordia-render-gpui",
  "ordia-sheet-layout",
