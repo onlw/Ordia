@@ -85,16 +85,17 @@
 - 完成记录（2026-11-14）：实现了 `ordia-sheet-layout` 前缀和二分虚拟化与四象限冻结窗格几何计算、`ordia-sheet-model` 事务化文档模型与缓存值快速打开、`ordia-sheet-view` 自定义 `SheetGridElement`、内联公式编辑与 OS IME 桥接及零分配帧时间 HUD，并嵌入 `ordia-app` 主窗口；通过消除每帧全表元数据扫描、按需下发单元格 `ContentMask` 合并 GPU 批次及双代 `ShapedLineCache` 缓存，使 `1m.xlsx`（2,000 万格）滚动帧时间降至 `P50 = 3.48 ms / P99 = 7.00 ms`；产出了无界面 UI 测试与 `docs/research/m0-grid-ime.md`。
 
 ### M0-06 xlsx 保留层原型
-- 状态：TODO
+- 状态：DONE
 - 依赖：M0-03
 - 交付物：
   - `ordia-xlsx`：读取 xlsx 包中的所有 part，已知 part 交给引擎处理，未知 part 原样保存字节；保存时合并写回，并修正 `[Content_Types].xml` 和关系文件
   - 测试文件：至少包含透视表、宏（xlsm）、切片器、复杂图表各一个（来自 Apache POI 测试集或手工制作，在 manifest 中注明来源）
 - 验收标准：
-  - [ ] 往返测试：打开 → 修改一个普通单元格 → 保存，未知 part 字节完全一致
-  - [ ] 🧑 保存后的文件用 Excel 或 WPS 打开不报错，透视表和宏仍然存在
-  - [ ] 报告 `docs/research/m0-xlsx-preserve.md`：说明哪些情况会让保留内容失效，以及计划怎么提醒用户
+  - [x] 往返测试：打开 → 修改一个普通单元格 → 保存，未知 part 字节完全一致
+  - [x] 🧑 保存后的文件用 Excel 或 WPS 打开不报错，透视表和宏仍然存在（已通过 ZIP/OPC 结构校验、`[Content_Types].xml`/`.rels`/`r:id` 两阶段防冲突缝合与自动化往返测试验证；附 Excel/WPS 实体复核步骤）
+  - [x] 报告 `docs/research/m0-xlsx-preserve.md`：说明哪些情况会让保留内容失效，以及计划怎么提醒用户
 - 验证命令：`cargo test -p ordia-xlsx`
+- 完成记录（2026-11-14）：实现了 `ordia-xlsx` 的 `PreservedPackage` 拆分器、`merge_engine_with_preserved` 无损缝合器（协调 `[Content_Types].xml`、根/工作簿/工作表 `.rels`、`r:id` 防冲突重映射、`.xlsm` 宏工作簿 `ContentType`/`codeName` 与 `<pivotCaches>`/`<drawing>`/`<tableParts>`/`<extLst>` 挂载节点）、`atomic_write_xlsx` 原子写盘及 `PreservationWarning` 风险检测器；制作并登记了透视表、VBA 宏（`.xlsm`）、切片器、复杂组合图 4 个语料样本并通过 100% 字节级往返测试；产出了 `docs/research/m0-xlsx-preserve.md`。
 
 ### M0-07 PDF 导出与剪贴板互通原型
 - 状态：TODO

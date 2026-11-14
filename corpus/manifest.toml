@@ -18,3 +18,39 @@ features = [
 ]
 expect_load = true
 expect_recalc_match = true
+
+[[files]]
+path = "public/m0_pivot_table.xlsx"
+source = "Created by Ordia project (ECMA-376 PivotCache + PivotTable preservation sample)"
+license = "Apache-2.0"
+tier = "P0"
+features = ["values", "cjk_text", "formulas", "pivot_table"]
+expect_load = true
+expect_recalc_match = true
+
+[[files]]
+path = "public/m0_macro_vba.xlsm"
+source = "Created by Ordia project (ECMA-376 macro-enabled workbook with binary vbaProject.bin)"
+license = "Apache-2.0"
+tier = "P0"
+features = ["values", "cjk_text", "formulas", "vba_macros"]
+expect_load = true
+expect_recalc_match = true
+
+[[files]]
+path = "public/m0_slicer.xlsx"
+source = "Created by Ordia project (ECMA-376 SlicerCache + worksheet x14:slicerList extension sample)"
+license = "Apache-2.0"
+tier = "P0"
+features = ["values", "cjk_text", "formulas", "slicers"]
+expect_load = true
+expect_recalc_match = true
+
+[[files]]
+path = "public/m0_complex_chart.xlsx"
+source = "Created by Ordia project (ECMA-376 combo Bar+Radar chart with chartStyle/colorStyle)"
+license = "Apache-2.0"
+tier = "P0"
+features = ["values", "cjk_text", "formulas", "complex_chart"]
+expect_load = true
+expect_recalc_match = true

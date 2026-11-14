@@ -806,6 +806,8 @@ impl SheetEngine for IronCalcEngine {
     }
 }
 
+static ATOMIC_WRITE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> Result<(), EngineError> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     std::fs::create_dir_all(parent)?;
@@ -818,7 +820,8 @@ fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> Result<(), EngineError> {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let tmp_path = parent.join(format!(".{stem}.{pid}.{nanos}.tmp"));
+    let seq = ATOMIC_WRITE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp_path = parent.join(format!(".{stem}.{pid}.{nanos}.{seq}.tmp"));
     let write_res = (|| -> std::io::Result<()> {
         let mut file = std::fs::File::create(&tmp_path)?;
         file.write_all(bytes)?;
