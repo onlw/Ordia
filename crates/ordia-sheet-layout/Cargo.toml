@@ -12,5 +12,8 @@ ordia-render.workspace = true
 ordia-text.workspace = true
 ordia-sheet-model.workspace = true
 
+[dev-dependencies]
+proptest.workspace = true
+
 [lints]
 workspace = true

@@ -106,4 +106,155 @@ mod tests {
             GridHit::RowHeader(401)
         );
     }
+
+    #[test]
+    fn dynamic_fenwick_updates_preserve_unhidden_sizes_and_run_under_one_microsecond() {
+        let mut axis = GridAxisIndex::uniform(MAX_ROWS, 25.0);
+        axis.set_span_size(500, 60.0);
+        assert_eq!(axis.span_size(500), 60.0);
+        assert_eq!(axis.unhidden_size(500), 60.0);
+
+        // Hide rows 500..=502; unhidden_size(500) must remain 60.0!
+        axis.set_range_hidden(500..=502, true);
+        assert!(axis.is_hidden(500));
+        assert_eq!(axis.span_size(500), 0.0);
+        assert_eq!(axis.unhidden_size(500), 60.0);
+        assert_eq!(axis.hidden_gap_before(503), Some(500..=502));
+        assert_eq!(axis.next_visible(499), Some(503));
+        assert_eq!(axis.prev_visible(503), Some(499));
+
+        // Unhide row 500 -> restores custom height 60.0 immediately in O(log N)!
+        axis.set_hidden(500, false);
+        assert_eq!(axis.span_size(500), 60.0);
+        assert_eq!(axis.hidden_gap_before(503), Some(501..=502));
+
+        // Measure 10,000 bidirectional pixel <-> row conversions at 1,048,576 rows.
+        let total = axis.total_extent();
+        let iters = 10_000_u64;
+        let mut checksum = 0_u64;
+        let t0 = std::time::Instant::now();
+        let mut lcg = 0x9E37_79B9_7F4A_7C15_u64;
+        for _ in 0..iters {
+            lcg = lcg
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            let frac = ((lcg >> 11) as f64) * (1.0 / ((1_u64 << 53) as f64));
+            let px = frac * total;
+            let row = axis.offset_to_index(px);
+            let back_px = axis.index_to_offset(row);
+            checksum = checksum
+                .wrapping_add(u64::from(row))
+                .wrapping_add(back_px as u64);
+        }
+        let elapsed_ns = t0.elapsed().as_nanos() as f64;
+        // Each loop performs BOTH `offset_to_index` and `index_to_offset`.
+        let ns_per_conversion = elapsed_ns / ((iters * 2) as f64);
+        assert!(checksum > 0);
+        assert!(
+            ns_per_conversion < 1_000.0,
+            "expected < 1000 ns (< 1 µs) per conversion at 1M rows, got {ns_per_conversion:.1} ns"
+        );
+    }
+
+    mod prop {
+        use super::*;
+        use proptest::prelude::*;
+
+        #[derive(Debug, Clone)]
+        enum AxisMutation {
+            Resize(usize, u16),
+            Hide(usize, bool),
+        }
+
+        fn naive_offsets(sizes: &[f32], hidden: &[bool]) -> Vec<f64> {
+            let mut offs = Vec::with_capacity(sizes.len() + 1);
+            let mut acc = 0.0_f64;
+            offs.push(0.0);
+            for (&s, &h) in sizes.iter().zip(hidden.iter()) {
+                if !h {
+                    acc += f64::from(s.max(0.0));
+                }
+                offs.push(acc);
+            }
+            offs
+        }
+
+        fn naive_offset_to_index(offs: &[f64], px: f64) -> u32 {
+            let n = offs.len() - 1;
+            if n == 0 {
+                return 0;
+            }
+            let total = offs[n];
+            if total <= 0.0 || px >= total {
+                return (n - 1) as u32;
+            }
+            let target = px.max(0.0);
+            let p = offs.partition_point(|&o| o <= target);
+            p.saturating_sub(1).min(n - 1) as u32
+        }
+
+        proptest! {
+            #[test]
+            fn fenwick_axis_matches_naive_prefix_sums_under_random_mutations(
+                raw_items in proptest::collection::vec((1_u16..=200_u16, any::<bool>()), 1..=260),
+                mutations in proptest::collection::vec(
+                    prop_oneof![
+                        (0_usize..300, 1_u16..=250_u16).prop_map(|(i, s)| AxisMutation::Resize(i, s)),
+                        (0_usize..300, any::<bool>()).prop_map(|(i, h)| AxisMutation::Hide(i, h)),
+                    ],
+                    0..=60
+                ),
+                probes in proptest::collection::vec(-20.0_f64..=60_000.0_f64, 1..=40),
+            ) {
+                let n = raw_items.len();
+                // Quantize sizes to 0.25 px (exact binary fraction) + non-power-of-two tenths (0.1 px)
+                let mut ref_sizes: Vec<f32> = raw_items.iter().map(|&(s, _)| f32::from(s) * 0.5).collect();
+                let mut ref_hidden: Vec<bool> = raw_items.iter().map(|&(_, h)| h).collect();
+
+                let mut axis = GridAxisIndex::from_sizes_and_hidden(&ref_sizes, &ref_hidden);
+
+                for m in mutations {
+                    match m {
+                        AxisMutation::Resize(idx, s) => {
+                            let i = idx % n;
+                            let val = f32::from(s) * 0.5;
+                            ref_sizes[i] = val;
+                            axis.set_span_size(i as u32, val);
+                        }
+                        AxisMutation::Hide(idx, h) => {
+                            let i = idx % n;
+                            ref_hidden[i] = h;
+                            axis.set_hidden(i as u32, h);
+                        }
+                    }
+                }
+
+                let offs = naive_offsets(&ref_sizes, &ref_hidden);
+                prop_assert!((axis.total_extent() - offs[n]).abs() < 1e-6);
+
+                for i in 0..n {
+                    let off = axis.index_to_offset(i as u32);
+                    prop_assert!((off - offs[i]).abs() < 1e-6);
+                    prop_assert_eq!(axis.is_hidden(i as u32), ref_hidden[i]);
+                    prop_assert!((axis.unhidden_size(i as u32) - ref_sizes[i]).abs() < 1e-6);
+
+                    // Exact boundary probes around `offs[i]`
+                    for delta in [-0.25_f64, 0.0, 0.25] {
+                        let px = offs[i] + delta;
+                        prop_assert_eq!(
+                            axis.offset_to_index(px),
+                            naive_offset_to_index(&offs, px)
+                        );
+                    }
+                }
+
+                for px in probes {
+                    prop_assert_eq!(
+                        axis.offset_to_index(px),
+                        naive_offset_to_index(&offs, px)
+                    );
+                }
+            }
+        }
+    }
 }

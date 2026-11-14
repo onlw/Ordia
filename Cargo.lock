@@ -5535,6 +5535,7 @@ dependencies = [
  "ordia-render",
  "ordia-sheet-model",
  "ordia-text",
+ "proptest",
 ]
 
 [[package]]
