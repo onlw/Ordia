@@ -151,9 +151,10 @@
 - 完成记录（2026-11-14）：完成了内核层零 GUI 依赖的 `ordia-i18n` crate（编译期内嵌 `locales/zh-CN.toml` 与 `locales/en.toml` 共 95 个翻译键、启动时自动检测系统语言环境、`set_locale` / `LanguagePreference` 实时无重启切换、`tr` 零分配静态查询与 `t!` 占位符插值宏），并将 `ordia-app`、`ordia-ui`、`ordia-sheet-view` 全部界面文案迁移至 `ordia_i18n::t!`；升级了 `cargo xtask i18n-check`（校验双语键集合完全相等、占位符集合一致、无空白译文、扫描 UI 源码禁止硬编码中文与裸字符串标签/提示、并校验所有引用键存在）且接入 `cargo xtask ci`。
 
 ### M1-05 设置与持久化
-- 状态：TODO ｜ 依赖：M1-02
+- 状态：DONE ｜ 依赖：M1-02
 - 交付物：设置页（通用、外观、语言、编辑、高级）、设置文件存储（TOML，存放在应用数据目录）、最近文件列表、窗口位置和大小记忆
-- 验收标准：[ ] 重启后设置和窗口状态都能恢复（UI 测试 + 单元测试）
+- 验收标准：[x] 重启后设置和窗口状态都能恢复（UI 测试 + 单元测试）
+- 完成记录（2026-11-14）：在 `ordia-core` 中实现了 `SettingsStore`、`AppSettings`（通用、外观、语言、编辑、高级五大分组）与 `AppStateSnapshot`（窗口几何位置与大小、侧边栏/属性面板折叠状态、最近打开文件 MRU 去重截断列表），采用写 `.toml.tmp` 临时文件 + `sync_all` + TOML 预解析校验 + `rename` 原子落盘策略；在 `ordia-app` 中实现了 `Cmd/Ctrl+,` 设置页面并打通实时外观主题与双语切换，新增了重启恢复单元测试与无界面 UI 集成测试。
 
 ### M1-06 文档抽象与文件打开流程
 - 状态：TODO ｜ 依赖：M1-02

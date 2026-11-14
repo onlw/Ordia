@@ -7,6 +7,7 @@ mod home_view;
 pub mod pinyin;
 /// Platform-specific native integrations (`macos`, `windows`).
 pub mod platform;
+mod settings_view;
 mod shell_chrome;
 /// Domain data types for the application shell (`WorkbookTab`, `RecentFileEntry`, `SidebarSection`).
 pub mod shell_types;
@@ -25,8 +26,13 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     App, AppContext as _, Bounds, Context, Entity, ExternalPaths, FocusHandle, Focusable,
     InteractiveElement as _, IntoElement, Menu, OwnedMenu, ParentElement as _, Render,
-    SharedString, Styled as _, Window, WindowBounds, WindowOptions, px, size,
+    SharedString, Styled as _, Window, WindowBounds, WindowOptions, point, px, size,
 };
+use ordia_core::{
+    AppSettings, AppStateSnapshot, AppearanceMode, EnterMoveDirection, LanguageSetting,
+    PersistedRecentFile, PersistedWindowBounds, SettingsStore,
+};
+use ordia_i18n::LanguagePreference;
 use ordia_sheet_model::SheetDocument;
 use ordia_sheet_view::{SheetWorkspaceView, register_sheet_keybindings};
 use ordia_ui::{
@@ -45,6 +51,7 @@ pub mod app_actions {
         ordia_app,
         [
             Quit,
+            OpenSettings,
             ToggleTheme,
             ToggleSidebar,
             ToggleInspector,
@@ -58,8 +65,8 @@ pub mod app_actions {
     );
 }
 pub use app_actions::{
-    CloseActiveTab, NewWindow, NewWorkbookTab, OpenCommandPalette, Quit, SaveWorkbook, ShowHome,
-    ToggleInspector, ToggleSidebar, ToggleTheme,
+    CloseActiveTab, NewWindow, NewWorkbookTab, OpenCommandPalette, OpenSettings, Quit,
+    SaveWorkbook, ShowHome, ToggleInspector, ToggleSidebar, ToggleTheme,
 };
 
 /// Returns the application display name.
@@ -112,9 +119,27 @@ pub fn open_design_gallery(
 
 /// Builds default window options using GPUI Kit's custom title bar chrome.
 pub fn default_window_options(cx: &App) -> WindowOptions {
+    window_options_for_store(&SettingsStore::default_store(), cx)
+}
+
+/// Builds window options restoring persisted geometry from `store` if available.
+pub fn window_options_for_store(store: &SettingsStore, cx: &App) -> WindowOptions {
     let mut options = TitleBar::window_options();
-    let bounds = Bounds::centered(None, size(px(1200.), px(780.)), cx);
-    options.window_bounds = Some(WindowBounds::Windowed(bounds));
+    let default_bounds = Bounds::centered(None, size(px(1200.), px(780.)), cx);
+    options.window_bounds = match store.load_state().ok().and_then(|s| s.window_bounds) {
+        Some(saved) => {
+            let restored = Bounds::new(
+                point(px(saved.x), px(saved.y)),
+                size(px(saved.width), px(saved.height)),
+            );
+            Some(if saved.maximized {
+                WindowBounds::Maximized(restored)
+            } else {
+                WindowBounds::Windowed(restored)
+            })
+        }
+        None => Some(WindowBounds::Windowed(default_bounds)),
+    };
     options.window_min_size = Some(size(px(720.), px(480.)));
     options
 }
@@ -124,6 +149,9 @@ pub struct MainWindow {
     focus_handle: FocusHandle,
     #[cfg(not(target_os = "macos"))]
     app_menu_bar: Entity<AppMenuBar>,
+    pub(crate) settings_store: SettingsStore,
+    pub(crate) settings: AppSettings,
+    pub(crate) window_bounds_override: Option<PersistedWindowBounds>,
     pub(crate) command_registry: CommandRegistry,
     pub(crate) palette_open: bool,
     pub(crate) palette_query: SharedString,
@@ -131,6 +159,7 @@ pub struct MainWindow {
     pub(crate) sidebar_collapsed: bool,
     pub(crate) inspector_open: bool,
     pub(crate) show_home: bool,
+    pub(crate) show_settings: bool,
     pub(crate) active_section: SidebarSection,
     pub(crate) tabs: Vec<WorkbookTab>,
     pub(crate) sheet_views: Vec<Entity<SheetWorkspaceView>>,
@@ -194,9 +223,45 @@ impl MainWindow {
         ]
     }
 
-    /// Constructs a new main window view with starter workbook tabs.
+    fn apply_loaded_preferences(
+        settings: &AppSettings,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let lang_pref = match settings.language {
+            LanguageSetting::System => LanguagePreference::System,
+            LanguageSetting::ZhCn => LanguagePreference::ZhCn,
+            LanguageSetting::En => LanguagePreference::En,
+        };
+        ordia_i18n::set_language_preference(lang_pref);
+
+        let theme_mode = match settings.appearance.theme {
+            AppearanceMode::Light => ThemeMode::Light,
+            AppearanceMode::Dark => ThemeMode::Dark,
+            AppearanceMode::System => cx.theme().mode,
+        };
+        ordia_ui::apply_ordia_theme(theme_mode, Some(window), cx);
+    }
+
+    /// Constructs a new main window view isolated from host disk state (ideal for generic UI tests).
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        ordia_ui::apply_ordia_theme(cx.theme().mode, Some(window), cx);
+        static EPHEMERAL_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let seq = EPHEMERAL_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let scratch_dir =
+            std::env::temp_dir().join(format!("ordia-ephemeral-{}-{seq}", std::process::id()));
+        Self::new_with_store(SettingsStore::with_dir(scratch_dir), window, cx)
+    }
+
+    /// Constructs a new main window view loading and persisting settings/state in `settings_store`.
+    pub fn new_with_store(
+        settings_store: SettingsStore,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let settings = settings_store.load_settings().unwrap_or_default();
+        let saved_state = settings_store.load_state().unwrap_or_default();
+        Self::apply_loaded_preferences(&settings, window, cx);
+
         let focus_handle = cx.focus_handle().tab_stop(true);
         let (toolbar_font_select, toolbar_size_select, toolbar_fill_picker, toolbar_text_picker) =
             Self::build_shell_controls(window, cx);
@@ -247,26 +312,40 @@ impl MainWindow {
             }),
         ];
 
+        let recent_files = if saved_state.recent_files.is_empty() {
+            Self::default_recent_entries()
+        } else {
+            saved_state
+                .recent_files
+                .into_iter()
+                .map(|r| RecentFileEntry::new(r.title, r.path, r.last_opened_label))
+                .collect()
+        };
+
         let palette_state = cx.new(|cx| CommandState::new(window, cx));
 
         Self {
             focus_handle,
             #[cfg(not(target_os = "macos"))]
             app_menu_bar,
+            settings_store,
+            settings,
+            window_bounds_override: saved_state.window_bounds,
             command_registry: CommandRegistry::default_ordia(),
             palette_open: false,
             palette_query: SharedString::default(),
             palette_state,
-            sidebar_collapsed: false,
-            inspector_open: false,
+            sidebar_collapsed: saved_state.sidebar_collapsed,
+            inspector_open: saved_state.inspector_open,
             show_home: false,
+            show_settings: false,
             active_section: SidebarSection::Recent,
             tabs,
             sheet_views,
             active_tab_ix: 0,
             next_tab_id: 4,
             saved_count: 0,
-            recent_files: Self::default_recent_entries(),
+            recent_files,
             toolbar_font_select,
             toolbar_size_select,
             toolbar_fill_picker,
@@ -281,7 +360,11 @@ impl MainWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        ordia_ui::apply_ordia_theme(cx.theme().mode, Some(window), cx);
+        let settings_store = SettingsStore::default_store();
+        let settings = settings_store.load_settings().unwrap_or_default();
+        let saved_state = settings_store.load_state().unwrap_or_default();
+        Self::apply_loaded_preferences(&settings, window, cx);
+
         let focus_handle = cx.focus_handle().tab_stop(true);
         let (toolbar_font_select, toolbar_size_select, toolbar_fill_picker, toolbar_text_picker) =
             Self::build_shell_controls(window, cx);
@@ -304,13 +387,17 @@ impl MainWindow {
             focus_handle,
             #[cfg(not(target_os = "macos"))]
             app_menu_bar,
+            settings_store,
+            settings,
+            window_bounds_override: saved_state.window_bounds,
             command_registry: CommandRegistry::default_ordia(),
             palette_open: false,
             palette_query: SharedString::default(),
             palette_state,
             sidebar_collapsed: true,
-            inspector_open: false,
+            inspector_open: saved_state.inspector_open,
             show_home: false,
+            show_settings: false,
             active_section: SidebarSection::Recent,
             tabs,
             sheet_views,
@@ -331,20 +418,33 @@ impl MainWindow {
         Self::open_with_path(None, cx)
     }
 
+    /// Creates and opens a main window backed by an explicit [`SettingsStore`].
+    pub fn open_with_store(
+        store: SettingsStore,
+        cx: &mut App,
+    ) -> anyhow::Result<(gpui_kit::AnyWindowHandle, Entity<Self>)> {
+        let options = window_options_for_store(&store, cx);
+        let opened = gpui_kit::open_window(options, cx, move |window, cx| {
+            cx.new(|cx| Self::new_with_store(store, window, cx))
+        })?;
+        Ok(opened)
+    }
+
     /// Creates and opens a main window, optionally loading an `.xlsx` file from `path`.
     pub fn open_with_path(
         path: Option<&Path>,
         cx: &mut App,
     ) -> anyhow::Result<(gpui_kit::AnyWindowHandle, Entity<Self>)> {
+        let store = SettingsStore::default_store();
         let preloaded = match path {
             Some(p) => Some(SheetDocument::open_xlsx(p)?),
             None => None,
         };
-        let options = default_window_options(cx);
+        let options = window_options_for_store(&store, cx);
         let opened = gpui_kit::open_window(options, cx, move |window, cx| {
             cx.new(|cx| match preloaded {
                 Some(doc) => Self::new_with_document(doc, window, cx),
-                None => Self::new(window, cx),
+                None => Self::new_with_store(store, window, cx),
             })
         })?;
         Ok(opened)
@@ -352,7 +452,7 @@ impl MainWindow {
 
     /// Returns the embedded [`SheetWorkspaceView`] for the currently active tab, if any.
     pub fn active_sheet_view(&self) -> Option<&Entity<SheetWorkspaceView>> {
-        if self.show_home {
+        if self.show_home || self.show_settings {
             return None;
         }
         self.sheet_views.get(self.active_tab_ix)
@@ -370,7 +470,22 @@ impl MainWindow {
 
     /// Returns whether the Home screen is currently active (either explicitly or when all tabs are closed).
     pub fn is_showing_home(&self) -> bool {
-        self.show_home || self.tabs.is_empty()
+        !self.show_settings && (self.show_home || self.tabs.is_empty())
+    }
+
+    /// Returns whether the Settings screen is currently active.
+    pub fn is_showing_settings(&self) -> bool {
+        self.show_settings
+    }
+
+    /// Returns the window's active [`AppSettings`].
+    pub fn settings(&self) -> &AppSettings {
+        &self.settings
+    }
+
+    /// Returns the last persisted or restored [`PersistedWindowBounds`], if any.
+    pub fn persisted_window_bounds(&self) -> Option<PersistedWindowBounds> {
+        self.window_bounds_override
     }
 
     /// Returns the currently active sidebar section.
@@ -452,31 +567,122 @@ impl MainWindow {
         }
     }
 
+    pub(crate) fn persist_settings(&self) {
+        let _ = self.settings_store.save_settings(&self.settings);
+    }
+
+    pub(crate) fn persist_shell_state(&self) {
+        let mut snap = AppStateSnapshot::default();
+        snap.window_bounds = self.window_bounds_override;
+        snap.sidebar_collapsed = self.sidebar_collapsed;
+        snap.inspector_open = self.inspector_open;
+        let max_len = self.settings.general.max_recent_files.max(1);
+        snap.recent_files = self
+            .recent_files
+            .iter()
+            .take(max_len)
+            .map(|r| {
+                PersistedRecentFile::new(
+                    r.title().to_string(),
+                    r.path().clone(),
+                    r.last_opened_label().to_string(),
+                )
+            })
+            .collect();
+        let _ = self.settings_store.save_state(&snap);
+    }
+
+    /// Records explicit window geometry (`x`, `y`, `width`, `height`, `maximized`) and persists `state.toml`.
+    pub fn record_window_bounds(&mut self, bounds: PersistedWindowBounds) {
+        self.window_bounds_override = Some(bounds);
+        self.persist_shell_state();
+    }
+
+    /// Snapshots the live GPUI `window.bounds()` and persists `state.toml`.
+    pub fn snapshot_live_window_bounds(&mut self, window: &Window) {
+        let b = window.bounds();
+        let persisted = PersistedWindowBounds::new(
+            f32::from(b.origin.x),
+            f32::from(b.origin.y),
+            f32::from(b.size.width),
+            f32::from(b.size.height),
+            window.is_maximized(),
+        );
+        self.record_window_bounds(persisted);
+    }
+
+    /// Opens the Settings view (`Cmd/Ctrl+,`).
+    pub fn open_settings_screen(&mut self, cx: &mut Context<Self>) {
+        self.active_section = SidebarSection::Settings;
+        self.show_settings = true;
+        cx.notify();
+    }
+
+    /// Updates and persists the [`AppearanceMode`] (`System`, `Light`, `Dark`).
+    pub fn set_appearance_mode(
+        &mut self,
+        mode: AppearanceMode,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.settings.appearance.theme = mode;
+        let resolved = match mode {
+            AppearanceMode::Light => ThemeMode::Light,
+            AppearanceMode::Dark => ThemeMode::Dark,
+            AppearanceMode::System => cx.theme().mode,
+        };
+        ordia_ui::apply_ordia_theme(resolved, Some(window), cx);
+        self.persist_settings();
+        cx.notify();
+    }
+
+    /// Updates and persists the [`LanguageSetting`] (`System`, `ZhCn`, `En`) immediately at runtime.
+    pub fn set_language_setting(&mut self, lang: LanguageSetting, cx: &mut Context<Self>) {
+        self.settings.language = lang;
+        let pref = match lang {
+            LanguageSetting::System => LanguagePreference::System,
+            LanguageSetting::ZhCn => LanguagePreference::ZhCn,
+            LanguageSetting::En => LanguagePreference::En,
+        };
+        ordia_i18n::set_language_preference(pref);
+        self.persist_settings();
+        cx.notify();
+    }
+
+    /// Updates and persists the [`EnterMoveDirection`] preference.
+    pub fn set_enter_move_direction(&mut self, dir: EnterMoveDirection, cx: &mut Context<Self>) {
+        self.settings.editing.enter_move_direction = dir;
+        self.persist_settings();
+        cx.notify();
+    }
+
     /// Toggles between light and dark theme modes across the application.
     pub fn toggle_theme(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let next_mode = if cx.theme().mode.is_dark() {
-            ThemeMode::Light
+        let next = if cx.theme().mode.is_dark() {
+            AppearanceMode::Light
         } else {
-            ThemeMode::Dark
+            AppearanceMode::Dark
         };
-        ordia_ui::apply_ordia_theme(next_mode, Some(window), cx);
-        cx.notify();
+        self.set_appearance_mode(next, window, cx);
     }
 
     /// Toggles the left navigation sidebar between expanded and icon-collapsed states.
     pub fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
         self.sidebar_collapsed = !self.sidebar_collapsed;
+        self.persist_shell_state();
         cx.notify();
     }
 
     /// Toggles the right contextual property inspector panel.
     pub fn toggle_inspector(&mut self, cx: &mut Context<Self>) {
         self.inspector_open = !self.inspector_open;
+        self.persist_shell_state();
         cx.notify();
     }
 
     /// Navigates to the Home screen (`Recent` & `Templates`).
     pub fn show_home_screen(&mut self, cx: &mut Context<Self>) {
+        self.show_settings = false;
         self.show_home = true;
         cx.notify();
     }
@@ -580,6 +786,11 @@ impl MainWindow {
                         ordia_i18n::t!("shell.recent_just_now"),
                     ),
                 );
+                let max_len = self.settings.general.max_recent_files.max(1);
+                if self.recent_files.len() > max_len {
+                    self.recent_files.truncate(max_len);
+                }
+                self.persist_shell_state();
                 self.push_document_tab(tab, doc, window, cx);
             }
         }
@@ -601,6 +812,7 @@ impl MainWindow {
         }));
         self.active_tab_ix = self.tabs.len().saturating_sub(1);
         self.show_home = false;
+        self.show_settings = false;
         cx.notify();
     }
 
@@ -609,6 +821,7 @@ impl MainWindow {
         if ix < self.tabs.len() {
             self.active_tab_ix = ix;
             self.show_home = false;
+            self.show_settings = false;
             cx.notify();
         }
     }
@@ -668,6 +881,7 @@ impl MainWindow {
     }
 
     fn render_workspace_content(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let showing_settings = self.show_settings;
         let showing_home = self.is_showing_home();
         let active_sheet = self.active_sheet_view().cloned();
 
@@ -677,8 +891,13 @@ impl MainWindow {
             .min_w_0()
             .min_h_0()
             .bg(cx.theme().background)
-            .when(showing_home, |el| el.child(self.render_home_screen(cx)))
-            .when(!showing_home, |el| {
+            .when(showing_settings, |el| {
+                el.child(self.render_settings_screen(cx))
+            })
+            .when(!showing_settings && showing_home, |el| {
+                el.child(self.render_home_screen(cx))
+            })
+            .when(!showing_settings && !showing_home, |el| {
                 el.when_some(active_sheet, |row, sheet_view| row.child(sheet_view))
                     .when(self.inspector_open, |row| {
                         row.child(self.render_inspector_slot(cx))
@@ -695,7 +914,7 @@ impl Focusable for MainWindow {
 
 impl Render for MainWindow {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let showing_home = self.is_showing_home();
+        let showing_home_or_settings = self.is_showing_home() || self.show_settings;
         #[cfg(not(target_os = "macos"))]
         let win_menu = self.app_menu_bar.clone();
 
@@ -706,6 +925,9 @@ impl Render for MainWindow {
             .track_focus(&self.focus_handle)
             .on_drop(cx.listener(|this, paths: &ExternalPaths, window, cx| {
                 this.open_dropped_paths(paths.paths(), window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &OpenSettings, _, cx| {
+                this.open_settings_screen(cx);
             }))
             .on_action(cx.listener(|this, _: &OpenCommandPalette, window, cx| {
                 if this.palette_open {
@@ -751,19 +973,21 @@ impl Render for MainWindow {
                 .child(win_menu),
         );
 
-        root.when(!showing_home, |el| el.child(self.render_toolbar_slot(cx)))
-            .child(
-                h_flex()
-                    .items_stretch()
-                    .flex_1()
-                    .min_h_0()
-                    .size_full()
-                    .child(self.render_sidebar(cx))
-                    .child(self.render_workspace_content(cx)),
-            )
-            .child(self.render_status_bar(cx))
-            .when(self.palette_open, |el| {
-                el.child(self.render_command_palette_overlay(cx))
-            })
+        root.when(!showing_home_or_settings, |el| {
+            el.child(self.render_toolbar_slot(cx))
+        })
+        .child(
+            h_flex()
+                .items_stretch()
+                .flex_1()
+                .min_h_0()
+                .size_full()
+                .child(self.render_sidebar(cx))
+                .child(self.render_workspace_content(cx)),
+        )
+        .child(self.render_status_bar(cx))
+        .when(self.palette_open, |el| {
+            el.child(self.render_command_palette_overlay(cx))
+        })
     }
 }

@@ -172,3 +172,100 @@ fn command_palette_pinyin_search_and_registry_toolbar_execution(cx: &mut TestApp
     })
     .expect("drive command palette UI test");
 }
+
+#[gpui_kit::test]
+fn settings_and_window_state_persist_across_restart(cx: &mut TestAppContext) {
+    use ordia_core::{
+        AppearanceMode, EnterMoveDirection, LanguageSetting, PersistedWindowBounds, SettingsStore,
+    };
+
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        ordia_app::register_bindings_and_menus(cx);
+    });
+
+    let temp_dir = tempfile::tempdir().expect("create temporary config dir");
+    let store = SettingsStore::with_dir(temp_dir.path());
+
+    // Session 1: open window backed by `store`, open Settings page, customize preferences,
+    // toggle panels, drop a recent file, and record custom window geometry.
+    let (handle1, view1) = cx.update(|cx| {
+        MainWindow::open_with_store(store.clone(), cx).expect("open session 1 main window")
+    });
+
+    cx.update_window(handle1, |_, window, cx| {
+        window.render_frame(cx);
+        view1.update(cx, |this, cx| {
+            this.open_settings_screen(cx);
+        });
+        window.render_frame(cx);
+        assert!(view1.read(cx).is_showing_settings());
+
+        // Toggle "reopen last workbooks" button directly inside the Settings UI!
+        window.click("settings-toggle-reopen", cx);
+        window.render_frame(cx);
+        assert!(!view1.read(cx).settings().general.reopen_last_workbooks);
+
+        // Update appearance, language, Enter direction, panels, recent files, and window bounds.
+        let sample_xlsx = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../corpus/public/m0_budget_sample.xlsx");
+        view1.update(cx, |this, cx| {
+            this.set_appearance_mode(AppearanceMode::Dark, window, cx);
+            this.set_language_setting(LanguageSetting::ZhCn, cx);
+            this.set_enter_move_direction(EnterMoveDirection::Right, cx);
+            this.toggle_sidebar(cx);
+            this.toggle_inspector(cx);
+            this.open_dropped_paths(&[sample_xlsx], window, cx);
+            this.record_window_bounds(PersistedWindowBounds::new(
+                140.0, 90.0, 1360.0, 840.0, false,
+            ));
+        });
+        window.render_frame(cx);
+        assert!(cx.theme().mode.is_dark());
+        assert_eq!(ordia_i18n::current_locale(), ordia_i18n::Locale::ZhCn);
+    })
+    .expect("drive session 1 settings mutations");
+
+    // Reset in-memory globals to Light + En before Session 2 so we prove Session 2 restores them from TOML!
+    cx.update(|cx| {
+        ordia_i18n::set_locale(ordia_i18n::Locale::En);
+        ordia_ui::apply_ordia_theme(gpui_kit::component::ThemeMode::Light, None, cx);
+    });
+    assert_eq!(ordia_i18n::current_locale(), ordia_i18n::Locale::En);
+
+    // Session 2 (simulated restart): open a fresh MainWindow from the same `SettingsStore`.
+    let (handle2, view2) = cx.update(|cx| {
+        MainWindow::open_with_store(store, cx).expect("reopen session 2 main window from disk")
+    });
+
+    cx.update_window(handle2, |_, window, cx| {
+        window.render_frame(cx);
+        let win = view2.read(cx);
+        assert!(!win.settings().general.reopen_last_workbooks);
+        assert_eq!(win.settings().appearance.theme, AppearanceMode::Dark);
+        assert_eq!(win.settings().language, LanguageSetting::ZhCn);
+        assert_eq!(
+            win.settings().editing.enter_move_direction,
+            EnterMoveDirection::Right
+        );
+        assert!(cx.theme().mode.is_dark());
+        assert_eq!(ordia_i18n::current_locale(), ordia_i18n::Locale::ZhCn);
+        assert!(win.is_sidebar_collapsed());
+        assert!(win.is_inspector_open());
+        assert_eq!(
+            win.persisted_window_bounds(),
+            Some(PersistedWindowBounds::new(
+                140.0, 90.0, 1360.0, 840.0, false
+            ))
+        );
+        assert_eq!(
+            win.recent_files().first().map(|r| r.title().as_ref()),
+            Some("m0_budget_sample.xlsx")
+        );
+
+        // Restore clean defaults at end of test.
+        ordia_i18n::set_locale(ordia_i18n::Locale::En);
+        ordia_ui::apply_ordia_theme(gpui_kit::component::ThemeMode::Light, Some(window), cx);
+    })
+    .expect("verify session 2 restored state");
+}

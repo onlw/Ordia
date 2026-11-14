@@ -13,8 +13,8 @@ use ordia_ui::OrdiaIcon;
 
 use crate::pinyin::fuzzy_or_pinyin_score;
 use crate::{
-    CloseActiveTab, MainWindow, NewWindow, NewWorkbookTab, OpenCommandPalette, Quit, SaveWorkbook,
-    ShowHome, ToggleInspector, ToggleSidebar, ToggleTheme,
+    CloseActiveTab, MainWindow, NewWindow, NewWorkbookTab, OpenCommandPalette, OpenSettings, Quit,
+    SaveWorkbook, ShowHome, ToggleInspector, ToggleSidebar, ToggleTheme,
 };
 
 type EnabledPredicate = Rc<dyn Fn(&MainWindow, &App) -> bool>;
@@ -232,6 +232,20 @@ impl CommandRegistry {
         let mut reg = Self::new();
         let always: EnabledPredicate = Rc::new(|_, _| true);
         let when_workbook_open: EnabledPredicate = Rc::new(|win, _| !win.is_showing_home());
+
+        reg.register(CommandSpec {
+            id: "app.settings",
+            category: CommandCategory::App,
+            i18n_key: "cmd.app.settings",
+            icon: Some(OrdiaIcon::Settings),
+            shortcut_macos: Some("cmd-,"),
+            shortcut_other: Some("ctrl-,"),
+            key_context: None,
+            in_toolbar: false,
+            is_enabled: always.clone(),
+            make_action: Rc::new(|| Box::new(OpenSettings)),
+            execute: Rc::new(|win, _, cx| win.open_settings_screen(cx)),
+        });
 
         reg.register(CommandSpec {
             id: "app.quit",

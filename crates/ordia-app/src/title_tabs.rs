@@ -267,26 +267,27 @@ impl MainWindow {
                     SidebarMenu::new().children([
                         SidebarMenuItem::new(ordia_i18n::t!("shell.nav_recent"))
                             .icon(IconName::FileText)
-                            .active(active == SidebarSection::Recent)
+                            .active(active == SidebarSection::Recent && self.is_showing_home())
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.active_section = SidebarSection::Recent;
+                                this.show_settings = false;
                                 this.show_home = true;
                                 cx.notify();
                             })),
                         SidebarMenuItem::new(ordia_i18n::t!("shell.nav_templates"))
                             .icon(IconName::Folder)
-                            .active(active == SidebarSection::Templates)
+                            .active(active == SidebarSection::Templates && self.is_showing_home())
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.active_section = SidebarSection::Templates;
+                                this.show_settings = false;
                                 this.show_home = true;
                                 cx.notify();
                             })),
                         SidebarMenuItem::new(ordia_i18n::t!("shell.nav_settings"))
                             .icon(IconName::Settings)
-                            .active(active == SidebarSection::Settings)
+                            .active(self.show_settings)
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.active_section = SidebarSection::Settings;
-                                cx.notify();
+                                this.open_settings_screen(cx);
                             })),
                     ]),
                 ),
