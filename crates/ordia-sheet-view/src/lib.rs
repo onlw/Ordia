@@ -8,8 +8,9 @@ mod workspace_view;
 pub use frame_stats::{FrameTimeSnapshot, FrameTimeTracker};
 pub use grid_element::SheetGridElement;
 pub use workspace_view::{
-    CancelEdit, ClearActiveCell, CommitEdit, CopySelection, InMemoryClipboardBridge, MoveDown,
-    MoveLeft, MovePageDown, MovePageUp, MoveRight, MoveRowEnd, MoveRowStart, MoveUp,
-    PasteClipboard, RedoEdit, SheetClipboardBridge, SheetWorkspaceView, StartEdit,
-    TogglePerfOverlay, UndoEdit, register_sheet_keybindings,
+    CancelEdit, ClearActiveCell, CommitEdit, CopySelection, DEFAULT_ZOOM_PERCENT,
+    InMemoryClipboardBridge, MAX_ZOOM_PERCENT, MIN_ZOOM_PERCENT, MoveDown, MoveLeft, MovePageDown,
+    MovePageUp, MoveRight, MoveRowEnd, MoveRowStart, MoveUp, PasteClipboard, RedoEdit,
+    SheetClipboardBridge, SheetWorkspaceView, StartEdit, ToggleGridlines, TogglePerfOverlay,
+    UndoEdit, ZoomIn, ZoomOut, ZoomReset, register_sheet_keybindings,
 };

@@ -364,31 +364,38 @@ impl SheetDocument {
 
     fn expand_cached_used_range(&mut self, tx: &Transaction) {
         for op in &tx.ops {
-            let target = match op {
+            let target_range = match op {
                 SheetOp::SetCellInput {
                     sheet,
                     coord,
                     new_input,
                     ..
-                } if !new_input.is_empty() => Some((*sheet, *coord)),
-                SheetOp::SetCellStyle { sheet, coord, .. } => Some((*sheet, *coord)),
+                } if !new_input.is_empty() => Some((*sheet, CellRange::single(*coord))),
+                SheetOp::SetCellStyle { sheet, coord, .. } => {
+                    Some((*sheet, CellRange::single(*coord)))
+                }
+                SheetOp::SetMerged {
+                    sheet,
+                    range,
+                    merged: true,
+                } => Some((*sheet, *range)),
                 _ => None,
             };
-            if let Some((sheet, coord)) = target
+            if let Some((sheet, r)) = target_range
                 && let Some(info) = self.cached_sheets.iter_mut().find(|s| s.index == sheet)
             {
                 info.used_range = Some(match info.used_range {
                     Some(existing) => CellRange::new(
                         CellCoord::new(
-                            existing.start.row.min(coord.row),
-                            existing.start.col.min(coord.col),
+                            existing.start.row.min(r.start.row),
+                            existing.start.col.min(r.start.col),
                         ),
                         CellCoord::new(
-                            existing.end.row.max(coord.row),
-                            existing.end.col.max(coord.col),
+                            existing.end.row.max(r.end.row),
+                            existing.end.col.max(r.end.col),
                         ),
                     ),
-                    None => CellRange::single(coord),
+                    None => r,
                 });
             }
         }
@@ -448,6 +455,124 @@ impl SheetDocument {
         self.engine.custom_col_metrics(self.active_sheet)
     }
 
+    /// Lists all merged cell ranges on `sheet`.
+    pub fn merged_ranges_on(&self, sheet: u32) -> Result<Vec<CellRange>, EngineError> {
+        self.engine.merged_ranges(sheet)
+    }
+
+    /// Lists all merged cell ranges on the active worksheet.
+    pub fn merged_ranges(&self) -> Result<Vec<CellRange>, EngineError> {
+        self.engine.merged_ranges(self.active_sheet)
+    }
+
+    /// Returns whether gridlines are visible on `sheet`.
+    #[must_use]
+    pub fn show_grid_lines_on(&self, sheet: u32) -> bool {
+        self.cached_sheets
+            .iter()
+            .find(|s| s.index == sheet)
+            .is_none_or(|s| s.show_grid_lines)
+    }
+
+    /// Returns whether gridlines are visible on the active worksheet.
+    #[must_use]
+    pub fn show_grid_lines(&self) -> bool {
+        self.show_grid_lines_on(self.active_sheet)
+    }
+
+    /// Shows or hides gridlines on the active worksheet via an undoable [`Transaction`].
+    pub fn set_show_grid_lines(&mut self, show: bool) -> Result<(), EngineError> {
+        let old_show = self.show_grid_lines();
+        if old_show == show {
+            return Ok(());
+        }
+        self.execute_transaction(Transaction::single(
+            "Toggle gridlines",
+            SheetOp::SetShowGridLines {
+                sheet: self.active_sheet,
+                old_show,
+                new_show: show,
+            },
+        ))
+    }
+
+    /// Merges `range` on the active worksheet via an undoable [`Transaction`].
+    pub fn merge_range(&mut self, range: CellRange) -> Result<(), EngineError> {
+        self.execute_transaction(Transaction::single(
+            format!("Merge {range}"),
+            SheetOp::SetMerged {
+                sheet: self.active_sheet,
+                range,
+                merged: true,
+            },
+        ))
+    }
+
+    /// Unmerges `range` on the active worksheet via an undoable [`Transaction`].
+    pub fn unmerge_range(&mut self, range: CellRange) -> Result<(), EngineError> {
+        self.execute_transaction(Transaction::single(
+            format!("Unmerge {range}"),
+            SheetOp::SetMerged {
+                sheet: self.active_sheet,
+                range,
+                merged: false,
+            },
+        ))
+    }
+
+    /// Hides or unhides `row` on the active worksheet via an undoable [`Transaction`].
+    pub fn set_row_hidden(&mut self, row: u32, hidden: bool) -> Result<(), EngineError> {
+        let old_hidden = self.engine.is_row_hidden(self.active_sheet, row)?;
+        if old_hidden == hidden {
+            return Ok(());
+        }
+        self.execute_transaction(Transaction::single(
+            format!("Set row {} hidden={hidden}", row + 1),
+            SheetOp::SetRowHidden {
+                sheet: self.active_sheet,
+                row,
+                old_hidden,
+                new_hidden: hidden,
+            },
+        ))
+    }
+
+    /// Hides or unhides `col` on the active worksheet via an undoable [`Transaction`].
+    pub fn set_col_hidden(&mut self, col: u32, hidden: bool) -> Result<(), EngineError> {
+        let old_hidden = self.engine.is_col_hidden(self.active_sheet, col)?;
+        if old_hidden == hidden {
+            return Ok(());
+        }
+        self.execute_transaction(Transaction::single(
+            format!(
+                "Set col {} hidden={hidden}",
+                ordia_sheet_engine::col_to_letters(col)
+            ),
+            SheetOp::SetColHidden {
+                sheet: self.active_sheet,
+                col,
+                old_hidden,
+                new_hidden: hidden,
+            },
+        ))
+    }
+
+    /// Updates the [`FreezePane`] settings of the active worksheet via an undoable [`Transaction`].
+    pub fn set_freeze_pane(&mut self, new_freeze: FreezePane) -> Result<(), EngineError> {
+        let old_freeze = self.freeze_pane()?;
+        if old_freeze == new_freeze {
+            return Ok(());
+        }
+        self.execute_transaction(Transaction::single(
+            "Set freeze panes",
+            SheetOp::SetFreezePane {
+                sheet: self.active_sheet,
+                old_freeze,
+                new_freeze,
+            },
+        ))
+    }
+
     /// Drains fine-grained [`SheetDamage`] scopes accumulated since the last layout/tile sync (`M2-02`).
     pub fn drain_damage(&mut self) -> Vec<SheetDamage> {
         std::mem::take(&mut self.pending_damage)
@@ -461,8 +586,11 @@ impl SheetDocument {
                 SheetOp::SetCellInput { .. } => touches_inputs = true,
                 SheetOp::SetFreezePane { .. }
                 | SheetOp::SetRowHeight { .. }
-                | SheetOp::SetColWidth { .. } => touches_layout = true,
-                SheetOp::SetCellStyle { .. } => {}
+                | SheetOp::SetColWidth { .. }
+                | SheetOp::SetRowHidden { .. }
+                | SheetOp::SetColHidden { .. }
+                | SheetOp::SetMerged { .. } => touches_layout = true,
+                SheetOp::SetCellStyle { .. } | SheetOp::SetShowGridLines { .. } => {}
             }
         }
 
@@ -485,16 +613,33 @@ impl SheetDocument {
                         coord: *coord,
                     });
                 }
-                SheetOp::SetRowHeight { sheet, row, .. } => {
+                SheetOp::SetRowHeight { sheet, row, .. }
+                | SheetOp::SetRowHidden { sheet, row, .. } => {
                     self.pending_damage.push(SheetDamage::FromRow {
                         sheet: *sheet,
                         from_row: *row,
                     });
                 }
-                SheetOp::SetColWidth { sheet, col, .. } => {
+                SheetOp::SetColWidth { sheet, col, .. }
+                | SheetOp::SetColHidden { sheet, col, .. } => {
                     self.pending_damage.push(SheetDamage::FromCol {
                         sheet: *sheet,
                         from_col: *col,
+                    });
+                }
+                SheetOp::SetShowGridLines {
+                    sheet, new_show, ..
+                } => {
+                    if let Some(info) = self.cached_sheets.iter_mut().find(|s| s.index == *sheet) {
+                        info.show_grid_lines = *new_show;
+                    }
+                    self.pending_damage
+                        .push(SheetDamage::Sheet { sheet: *sheet });
+                }
+                SheetOp::SetMerged { sheet, range, .. } => {
+                    self.pending_damage.push(SheetDamage::Range {
+                        sheet: *sheet,
+                        range: *range,
                     });
                 }
                 SheetOp::SetFreezePane { .. } => {}

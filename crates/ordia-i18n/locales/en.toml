@@ -108,6 +108,11 @@ placeholder = "Search commands or type Pinyin initials (e.g. bc)..."
 
 [sheet]
 toggle_perf_overlay = "Toggle frame-time overlay (F12)"
+toggle_gridlines = "Show or hide gridlines"
+zoom_in = "Zoom in (Cmd/Ctrl+=)"
+zoom_out = "Zoom out (Cmd/Ctrl+-)"
+zoom_reset = "Reset zoom to 100% (Cmd/Ctrl+0)"
+zoom_slider = "Canvas zoom level"
 modified = "Modified"
 saved = "Saved"
 

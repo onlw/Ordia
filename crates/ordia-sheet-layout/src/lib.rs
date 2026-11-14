@@ -2,19 +2,24 @@
 
 mod axis;
 mod cell_style_render;
+mod merged;
 mod tile_cache;
 mod viewport;
+mod viewport_render;
 
 pub use axis::GridAxisIndex;
 pub use cell_style_render::{estimate_text_width_px, wrap_cell_text};
+pub use merged::MergedRangeIndex;
 pub use tile_cache::{
     CachedTile, DEFAULT_MAX_CACHED_TILES, SheetTileCache, TILE_COLS, TILE_ROWS, TileKey, TilePlan,
-    TileRenderTheme, build_tile_display_list, plan_viewport_tiles,
+    TileRenderTheme, build_tile_display_list, build_tile_display_list_with_merges,
+    plan_viewport_tiles,
 };
 pub use viewport::{
     DEFAULT_COL_HEADER_HEIGHT_PX, DEFAULT_ROW_HEADER_WIDTH_PX, GridHit, LogicalRect, PaneRegion,
     ViewportGeometry, ViewportParams,
 };
+pub use viewport_render::render_viewport_display_list;
 
 #[cfg(test)]
 mod tests {

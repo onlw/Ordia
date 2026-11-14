@@ -5,10 +5,11 @@ use crate::grid_element::SheetGridElement;
 use crate::text_cache::ShapedLineCache;
 use gpui_kit::TestSupportExt as _;
 use gpui_kit::component::{
-    ActiveTheme as _, IconName, Sizable as _, StyledExt as _,
+    ActiveTheme as _, IconName, Selectable as _, Sizable as _, StyledExt as _,
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Enter as InputEnter, Escape as InputEscape, Input, InputEvent, InputState},
+    slider::{Slider, SliderEvent, SliderState},
     tab::{Tab, TabBar},
     v_flex,
 };
@@ -22,8 +23,8 @@ use gpui_kit::{
 use ordia_render_gpui::ShapedTextCache;
 use ordia_sheet_layout::{
     CachedTile, DEFAULT_COL_HEADER_HEIGHT_PX, DEFAULT_ROW_HEADER_WIDTH_PX, GridAxisIndex,
-    LogicalRect, SheetTileCache, TileKey, TileRenderTheme, ViewportGeometry,
-    build_tile_display_list, plan_viewport_tiles,
+    LogicalRect, MergedRangeIndex, SheetTileCache, TileKey, TileRenderTheme, ViewportGeometry,
+    build_tile_display_list_with_merges, plan_viewport_tiles,
 };
 use ordia_sheet_model::{
     CellCoord, CellRange, ClipboardPayload, FreezePane, MAX_COLS, MAX_ROWS, SheetDocument,
@@ -63,6 +64,13 @@ impl SheetClipboardBridge for InMemoryClipboardBridge {
     }
 }
 
+/// Minimum supported canvas zoom percentage (`10%`).
+pub const MIN_ZOOM_PERCENT: u16 = 10;
+/// Maximum supported canvas zoom percentage (`400%`).
+pub const MAX_ZOOM_PERCENT: u16 = 400;
+/// Default canvas zoom percentage (`100%`).
+pub const DEFAULT_ZOOM_PERCENT: u16 = 100;
+
 /// Keyboard navigation and editing actions scoped to [`SheetWorkspaceView`].
 #[allow(missing_docs)]
 pub mod sheet_actions {
@@ -82,6 +90,10 @@ pub mod sheet_actions {
             CommitEdit,
             ClearActiveCell,
             TogglePerfOverlay,
+            ToggleGridlines,
+            ZoomIn,
+            ZoomOut,
+            ZoomReset,
             UndoEdit,
             RedoEdit,
             CopySelection,
@@ -94,21 +106,39 @@ pub use sheet_actions::*;
 /// Registers keyboard shortcuts for [`SheetWorkspaceView`] navigation and editing.
 pub fn register_sheet_keybindings(cx: &mut App) {
     #[cfg(target_os = "macos")]
-    let platform_undo = [
+    let platform_shortcuts = [
         KeyBinding::new("cmd-z", UndoEdit, Some("OrdiaSheetGrid && !Input")),
         KeyBinding::new("cmd-shift-z", RedoEdit, Some("OrdiaSheetGrid && !Input")),
         KeyBinding::new("cmd-c", CopySelection, Some("OrdiaSheetGrid && !Input")),
         KeyBinding::new("cmd-v", PasteClipboard, Some("OrdiaSheetGrid && !Input")),
+        KeyBinding::new(
+            "cmd-shift-g",
+            ToggleGridlines,
+            Some("OrdiaSheetWorkspace && !Input"),
+        ),
+        KeyBinding::new("cmd-=", ZoomIn, Some("OrdiaSheetWorkspace && !Input")),
+        KeyBinding::new("cmd-+", ZoomIn, Some("OrdiaSheetWorkspace && !Input")),
+        KeyBinding::new("cmd--", ZoomOut, Some("OrdiaSheetWorkspace && !Input")),
+        KeyBinding::new("cmd-0", ZoomReset, Some("OrdiaSheetWorkspace && !Input")),
     ];
     #[cfg(not(target_os = "macos"))]
-    let platform_undo = [
+    let platform_shortcuts = [
         KeyBinding::new("ctrl-z", UndoEdit, Some("OrdiaSheetGrid && !Input")),
         KeyBinding::new("ctrl-y", RedoEdit, Some("OrdiaSheetGrid && !Input")),
         KeyBinding::new("ctrl-c", CopySelection, Some("OrdiaSheetGrid && !Input")),
         KeyBinding::new("ctrl-v", PasteClipboard, Some("OrdiaSheetGrid && !Input")),
+        KeyBinding::new(
+            "ctrl-shift-g",
+            ToggleGridlines,
+            Some("OrdiaSheetWorkspace && !Input"),
+        ),
+        KeyBinding::new("ctrl-=", ZoomIn, Some("OrdiaSheetWorkspace && !Input")),
+        KeyBinding::new("ctrl-+", ZoomIn, Some("OrdiaSheetWorkspace && !Input")),
+        KeyBinding::new("ctrl--", ZoomOut, Some("OrdiaSheetWorkspace && !Input")),
+        KeyBinding::new("ctrl-0", ZoomReset, Some("OrdiaSheetWorkspace && !Input")),
     ];
 
-    cx.bind_keys(platform_undo);
+    cx.bind_keys(platform_shortcuts);
     cx.bind_keys([
         KeyBinding::new("up", MoveUp, Some("OrdiaSheetGrid && !Input")),
         KeyBinding::new("down", MoveDown, Some("OrdiaSheetGrid && !Input")),
@@ -141,8 +171,12 @@ pub struct SheetWorkspaceView {
     document: SheetDocument,
     row_index: GridAxisIndex,
     col_index: GridAxisIndex,
+    merged_index: MergedRangeIndex,
     cached_freeze: FreezePane,
     cached_layout_rev: u64,
+    zoom_percent: u16,
+    syncing_zoom_slider: bool,
+    zoom_slider: Entity<SliderState>,
     scroll_x: f64,
     scroll_y: f64,
     last_canvas_bounds: Bounds<Pixels>,
@@ -222,8 +256,33 @@ impl SheetWorkspaceView {
             },
         );
 
+        let zoom_slider = cx.new(|_| {
+            SliderState::new()
+                .min(f32::from(MIN_ZOOM_PERCENT))
+                .max(f32::from(MAX_ZOOM_PERCENT))
+                .step(10.0)
+                .default_value(f32::from(DEFAULT_ZOOM_PERCENT))
+        });
+        let sub_zoom = cx.subscribe_in(
+            &zoom_slider,
+            window,
+            |this, _emitter, event: &SliderEvent, _window, cx| match event {
+                SliderEvent::Change(val) | SliderEvent::Release(val) => {
+                    if !this.syncing_zoom_slider {
+                        let pct =
+                            (val.end().round() as u16).clamp(MIN_ZOOM_PERCENT, MAX_ZOOM_PERCENT);
+                        if this.zoom_percent != pct {
+                            this.zoom_percent = pct;
+                            cx.notify();
+                        }
+                    }
+                }
+            },
+        );
+
         let row_overrides = document.custom_row_metrics().unwrap_or_default();
         let col_overrides = document.custom_col_metrics().unwrap_or_default();
+        let raw_merges = document.merged_ranges().unwrap_or_default();
         let cached_freeze = document.freeze_pane().unwrap_or_default();
         let cached_layout_rev = document.layout_revision();
 
@@ -232,8 +291,12 @@ impl SheetWorkspaceView {
             document,
             row_index: GridAxisIndex::from_row_metrics(MAX_ROWS, &row_overrides),
             col_index: GridAxisIndex::from_col_metrics(MAX_COLS, &col_overrides),
+            merged_index: MergedRangeIndex::from_ranges(&raw_merges),
             cached_freeze,
             cached_layout_rev,
+            zoom_percent: DEFAULT_ZOOM_PERCENT,
+            syncing_zoom_slider: false,
+            zoom_slider,
             scroll_x: 0.0,
             scroll_y: 0.0,
             last_canvas_bounds: Bounds::default(),
@@ -250,7 +313,7 @@ impl SheetWorkspaceView {
             last_tile_theme: None,
             text_cache: ShapedLineCache::new(),
             clipboard_bridge: Arc::new(InMemoryClipboardBridge::default()),
-            _subscriptions: vec![sub_cell, sub_formula],
+            _subscriptions: vec![sub_cell, sub_formula, sub_zoom],
         }
     }
 
@@ -361,9 +424,10 @@ impl SheetWorkspaceView {
             let doc = &self.document;
             let r_ix = &self.row_index;
             let c_ix = &self.col_index;
-            let _ = self
-                .tile_cache
-                .get_or_build(key, |k| build_tile_display_list(doc, k, r_ix, c_ix, theme));
+            let m_ix = &self.merged_index;
+            let _ = self.tile_cache.get_or_build(key, |k| {
+                build_tile_display_list_with_merges(doc, k, r_ix, c_ix, m_ix, theme)
+            });
         }
         let mut warmed = 0usize;
         for key in plan.prefetch {
@@ -371,9 +435,10 @@ impl SheetWorkspaceView {
                 let doc = &self.document;
                 let r_ix = &self.row_index;
                 let c_ix = &self.col_index;
-                let _ = self
-                    .tile_cache
-                    .get_or_build(key, |k| build_tile_display_list(doc, k, r_ix, c_ix, theme));
+                let m_ix = &self.merged_index;
+                let _ = self.tile_cache.get_or_build(key, |k| {
+                    build_tile_display_list_with_merges(doc, k, r_ix, c_ix, m_ix, theme)
+                });
                 warmed += 1;
                 if warmed >= 2 {
                     break;
@@ -407,6 +472,57 @@ impl SheetWorkspaceView {
         self.show_perf_overlay
     }
 
+    /// Returns whether gridlines are visible on the active worksheet (`M2-05`).
+    #[must_use]
+    pub fn is_grid_lines_visible(&self) -> bool {
+        self.document.show_grid_lines()
+    }
+
+    /// Toggles gridline visibility on the active worksheet via an undoable transaction (`M2-05`).
+    pub fn toggle_grid_lines(&mut self, cx: &mut Context<Self>) {
+        let next = !self.document.show_grid_lines();
+        let _ = self.document.set_show_grid_lines(next);
+        cx.notify();
+    }
+
+    /// Current lossless canvas zoom percentage (`10..=400`, default `100`).
+    #[must_use]
+    pub fn zoom_percent(&self) -> u16 {
+        self.zoom_percent
+    }
+
+    /// Current lossless canvas zoom factor (`0.10..=4.0`, default `1.0`).
+    #[must_use]
+    pub fn zoom_scale(&self) -> f32 {
+        f32::from(self.zoom_percent) / 100.0
+    }
+
+    /// Sets the canvas zoom percentage (clamped to `10..=400`) and synchronizes the status-bar slider.
+    pub fn set_zoom_percent(&mut self, percent: u16, window: &mut Window, cx: &mut Context<Self>) {
+        let clamped = percent.clamp(MIN_ZOOM_PERCENT, MAX_ZOOM_PERCENT);
+        self.zoom_percent = clamped;
+        self.syncing_zoom_slider = true;
+        self.zoom_slider.update(cx, |s, cx| {
+            s.set_value(f32::from(clamped), window, cx);
+        });
+        self.syncing_zoom_slider = false;
+        cx.notify();
+    }
+
+    /// Steps canvas zoom by `delta_percent` (clamped to `10..=400`) and syncs the slider.
+    pub fn zoom_step(&mut self, delta_percent: i16, window: &mut Window, cx: &mut Context<Self>) {
+        let next = (i32::from(self.zoom_percent) + i32::from(delta_percent))
+            .clamp(i32::from(MIN_ZOOM_PERCENT), i32::from(MAX_ZOOM_PERCENT))
+            as u16;
+        self.set_zoom_percent(next, window, cx);
+    }
+
+    /// Returns the `O(log M)` merged-cell interval index for the active worksheet (`M2-05`).
+    #[must_use]
+    pub fn merged_index(&self) -> &MergedRangeIndex {
+        &self.merged_index
+    }
+
     pub(crate) fn row_index(&self) -> &GridAxisIndex {
         &self.row_index
     }
@@ -432,8 +548,10 @@ impl SheetWorkspaceView {
         if self.cached_layout_rev != rev {
             let row_overrides = self.document.custom_row_metrics().unwrap_or_default();
             let col_overrides = self.document.custom_col_metrics().unwrap_or_default();
+            let raw_merges = self.document.merged_ranges().unwrap_or_default();
             self.row_index = GridAxisIndex::from_row_metrics(MAX_ROWS, &row_overrides);
             self.col_index = GridAxisIndex::from_col_metrics(MAX_COLS, &col_overrides);
+            self.merged_index = MergedRangeIndex::from_ranges(&raw_merges);
             self.cached_freeze = self.document.freeze_pane().unwrap_or_default();
             self.cached_layout_rev = rev;
         }
@@ -493,12 +611,19 @@ impl SheetWorkspaceView {
         cx.notify();
     }
 
-    /// Selects a single cell, syncs the formula bar, ensures visibility, and focuses the grid.
+    /// Selects a single cell (expanding to its enclosing merged range if merged), syncs the formula bar, ensures visibility, and focuses the grid.
     pub fn select_cell(&mut self, coord: CellCoord, window: &mut Window, cx: &mut Context<Self>) {
-        self.document.set_active_cell(coord);
+        self.ensure_layout_indices();
+        if let Some(m) = self.merged_index.containing(coord) {
+            self.document.set_active_cell(m.start);
+            self.document.set_selection(m);
+        } else {
+            self.document.set_active_cell(coord);
+        }
+        let anchor = self.document.active_cell();
         self.sync_formula_bar_to_active(window, cx);
         if let Some(geom) = &self.last_geometry {
-            let (nx, ny) = geom.scroll_into_view(coord, &self.row_index, &self.col_index);
+            let (nx, ny) = geom.scroll_into_view(anchor, &self.row_index, &self.col_index);
             self.scroll_x = nx;
             self.scroll_y = ny;
         }
@@ -819,6 +944,19 @@ impl SheetWorkspaceView {
                 ),
             )
             .child(
+                Button::new("toggle-gridlines")
+                    .ghost()
+                    .xsmall()
+                    .selected(self.document.show_grid_lines())
+                    .icon(gpui_kit::component::Icon::new(
+                        gpui_kit::assets::IconName::Grid3x3,
+                    ))
+                    .tooltip(ordia_i18n::t!("sheet.toggle_gridlines"))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.toggle_grid_lines(cx);
+                    })),
+            )
+            .child(
                 Button::new("toggle-perf-overlay")
                     .ghost()
                     .xsmall()
@@ -961,13 +1099,60 @@ impl SheetWorkspaceView {
                     })),
             )
             .child(
-                div()
-                    .id("sheet-status-readout")
-                    .test_support()
-                    .aria_label(status_label.clone())
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(status_label),
+                h_flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .id("sheet-status-readout")
+                            .test_support()
+                            .aria_label(status_label.clone())
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(status_label),
+                    )
+                    .child(
+                        h_flex()
+                            .id("sheet-zoom-controls")
+                            .items_center()
+                            .gap_1()
+                            .child(
+                                Button::new("zoom-out-btn")
+                                    .ghost()
+                                    .xsmall()
+                                    .icon(IconName::Minus)
+                                    .tooltip(ordia_i18n::t!("sheet.zoom_out"))
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.zoom_step(-10, window, cx);
+                                    })),
+                            )
+                            .child(
+                                div().w_24().child(
+                                    Slider::new(&self.zoom_slider)
+                                        .accessibility_label(ordia_i18n::t!("sheet.zoom_slider")),
+                                ),
+                            )
+                            .child(
+                                Button::new("zoom-in-btn")
+                                    .ghost()
+                                    .xsmall()
+                                    .icon(IconName::Plus)
+                                    .tooltip(ordia_i18n::t!("sheet.zoom_in"))
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.zoom_step(10, window, cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("zoom-reset-btn")
+                                    .ghost()
+                                    .xsmall()
+                                    .label(SharedString::from(format!("{}%", self.zoom_percent)))
+                                    .tooltip(ordia_i18n::t!("sheet.zoom_reset"))
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.set_zoom_percent(DEFAULT_ZOOM_PERCENT, window, cx);
+                                    })),
+                            ),
+                    ),
             )
     }
 }
@@ -1103,6 +1288,18 @@ impl Render for SheetWorkspaceView {
             }))
             .on_action(cx.listener(|this, _: &TogglePerfOverlay, _, cx| {
                 this.toggle_perf_overlay(cx);
+            }))
+            .on_action(cx.listener(|this, _: &ToggleGridlines, _, cx| {
+                this.toggle_grid_lines(cx);
+            }))
+            .on_action(cx.listener(|this, _: &ZoomIn, window, cx| {
+                this.zoom_step(10, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &ZoomOut, window, cx| {
+                this.zoom_step(-10, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &ZoomReset, window, cx| {
+                this.set_zoom_percent(DEFAULT_ZOOM_PERCENT, window, cx);
             }))
             .child(self.render_formula_bar(cx))
             .child(

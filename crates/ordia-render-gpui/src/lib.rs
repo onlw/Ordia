@@ -139,10 +139,10 @@ fn to_hsla(c: Color) -> Hsla {
     Hsla::from(rgba(u32::from_be_bytes([c.r, c.g, c.b, c.a])))
 }
 
-fn to_bounds(origin: GpuiPoint<Pixels>, r: RectF) -> Bounds<Pixels> {
+fn to_bounds_scaled(origin: GpuiPoint<Pixels>, r: RectF, s: f32) -> Bounds<Pixels> {
     Bounds::new(
-        point(origin.x + px(r.x), origin.y + px(r.y)),
-        size(px(r.width.max(0.0)), px(r.height.max(0.0))),
+        point(origin.x + px(r.x * s), origin.y + px(r.y * s)),
+        size(px((r.width * s).max(0.0)), px((r.height * s).max(0.0))),
     )
 }
 
@@ -157,6 +157,7 @@ pub fn paint_display_list(
     paint_slice(
         &list.commands,
         origin,
+        1.0,
         default_font_family,
         None,
         window,
@@ -176,6 +177,29 @@ pub fn paint_display_list_cached(
     paint_slice(
         &list.commands,
         origin,
+        1.0,
+        default_font_family,
+        Some(cache),
+        window,
+        cx,
+    );
+}
+
+/// Paints `list` onto `window` anchored at `origin` with lossless vector `scale` (`0.10..=4.0`).
+#[allow(clippy::too_many_arguments)]
+pub fn paint_display_list_scaled(
+    list: &DisplayList,
+    origin: GpuiPoint<Pixels>,
+    scale: f32,
+    default_font_family: &SharedString,
+    cache: &mut ShapedTextCache,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    paint_slice(
+        &list.commands,
+        origin,
+        scale.clamp(0.10, 4.0),
         default_font_family,
         Some(cache),
         window,
@@ -186,6 +210,7 @@ pub fn paint_display_list_cached(
 fn paint_slice(
     commands: &[RenderCommand],
     origin: GpuiPoint<Pixels>,
+    scale: f32,
     default_font_family: &SharedString,
     mut cache: Option<&mut ShapedTextCache>,
     window: &mut Window,
@@ -199,16 +224,16 @@ fn paint_slice(
                 color,
                 corner_radius,
             } => {
-                let mut quad = fill(to_bounds(origin, *rect), to_hsla(*color));
+                let mut quad = fill(to_bounds_scaled(origin, *rect, scale), to_hsla(*color));
                 if *corner_radius > 0.0 {
-                    quad.corner_radii = px(*corner_radius).into();
+                    quad.corner_radii = px(*corner_radius * scale).into();
                 }
                 window.paint_quad(quad);
                 idx += 1;
             }
             RenderCommand::StrokeRect { rect, stroke } => {
                 let mut quad = outline(
-                    to_bounds(origin, *rect),
+                    to_bounds_scaled(origin, *rect, scale),
                     to_hsla(stroke.color),
                     if stroke.dash.is_some() {
                         BorderStyle::Dashed
@@ -216,22 +241,28 @@ fn paint_slice(
                         BorderStyle::Solid
                     },
                 );
-                quad.border_widths = px(stroke.width.max(0.5)).into();
+                quad.border_widths = px((stroke.width * scale).max(0.5)).into();
                 window.paint_quad(quad);
                 idx += 1;
             }
             RenderCommand::DrawLine { start, end, stroke } => {
-                let mut pb = PathBuilder::stroke(px(stroke.width.max(0.5)));
+                let mut pb = PathBuilder::stroke(px((stroke.width * scale).max(0.5)));
                 if let Some(pat) = stroke.dash {
                     let mut px_buf = [px(0.0); 6];
                     let slice = pat.as_slice();
                     for (dst, &v) in px_buf.iter_mut().zip(slice.iter()) {
-                        *dst = px(v);
+                        *dst = px((v * scale).max(0.5));
                     }
                     pb = pb.dash_array(&px_buf[..slice.len()]);
                 }
-                pb.move_to(point(origin.x + px(start.x), origin.y + px(start.y)));
-                pb.line_to(point(origin.x + px(end.x), origin.y + px(end.y)));
+                pb.move_to(point(
+                    origin.x + px(start.x * scale),
+                    origin.y + px(start.y * scale),
+                ));
+                pb.line_to(point(
+                    origin.x + px(end.x * scale),
+                    origin.y + px(end.y * scale),
+                ));
                 if let Ok(path) = pb.build() {
                     window.paint_path(path, to_hsla(stroke.color));
                 }
@@ -248,22 +279,25 @@ fn paint_slice(
                     .map(|s| SharedString::from(s.to_string()))
                     .unwrap_or_else(|| default_font_family.clone());
                 let shared_text = SharedString::from(text.clone());
+                let mut eff_style = style.clone();
+                eff_style.font_size = (style.font_size * scale).clamp(3.0, 240.0);
+                eff_style.max_width = style.max_width.map(|w| w * scale);
                 let shaped = if let Some(c) = cache.as_deref_mut() {
-                    c.shape_or_get(window, shared_text, family, style)
+                    c.shape_or_get(window, shared_text, family, &eff_style)
                 } else {
-                    shape_uncached_line(window, shared_text, family, style)
+                    shape_uncached_line(window, shared_text, family, &eff_style)
                 };
-                let align = match style.h_align {
+                let align = match eff_style.h_align {
                     TextHAlign::Left => TextAlign::Left,
                     TextHAlign::Center => TextAlign::Center,
                     TextHAlign::Right => TextAlign::Right,
                 };
-                let top_y = text_origin.y - (style.font_size * 0.82);
+                let top_y = text_origin.y * scale - (eff_style.font_size * 0.82);
                 let _ = shaped.paint(
-                    point(origin.x + px(text_origin.x), origin.y + px(top_y)),
-                    px(style.font_size * 1.2),
+                    point(origin.x + px(text_origin.x * scale), origin.y + px(top_y)),
+                    px(eff_style.font_size * 1.2),
                     align,
-                    style.max_width.map(px),
+                    eff_style.max_width.map(px),
                     window,
                     cx,
                 );
@@ -275,12 +309,13 @@ fn paint_slice(
                     .unwrap_or(commands.len());
                 let sub = &commands[idx + 1..close_idx];
                 let mask = ContentMask {
-                    bounds: to_bounds(origin, *rect),
+                    bounds: to_bounds_scaled(origin, *rect, scale),
                 };
                 window.with_content_mask(Some(mask), |window| {
                     paint_slice(
                         sub,
                         origin,
+                        scale,
                         default_font_family,
                         cache.as_deref_mut(),
                         window,

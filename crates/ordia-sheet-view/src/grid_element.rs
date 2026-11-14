@@ -10,7 +10,7 @@ use gpui_kit::{
     rgba, size,
 };
 use ordia_render::Color as RenderColor;
-use ordia_render_gpui::{ShapedTextCache, paint_display_list_cached};
+use ordia_render_gpui::{ShapedTextCache, paint_display_list_scaled};
 use ordia_sheet_layout::{
     DEFAULT_COL_HEADER_HEIGHT_PX, DEFAULT_ROW_HEADER_WIDTH_PX, GridHit, LogicalRect, PaneRegion,
     TILE_COLS, TILE_ROWS, TileKey, TileRenderTheme, ViewportGeometry, ViewportParams,
@@ -108,7 +108,7 @@ impl Element for SheetGridElement {
 
         let geometry = self.view.update(cx, |state, _cx| {
             state.ensure_layout_indices();
-            let geom = ViewportGeometry::compute(
+            let geom = ViewportGeometry::compute_zoomed(
                 ViewportParams {
                     canvas_width: cw,
                     canvas_height: ch,
@@ -118,14 +118,12 @@ impl Element for SheetGridElement {
                     scroll_x: state.scroll_x(),
                     scroll_y: state.scroll_y(),
                 },
+                state.zoom_scale(),
                 state.row_index(),
                 state.col_index(),
             );
             state.record_resolved_viewport(bounds, &geom);
-            let show_grid = state
-                .document()
-                .active_sheet_info()
-                .is_none_or(|info| info.show_grid_lines);
+            let show_grid = state.document().show_grid_lines();
             let tile_theme = TileRenderTheme {
                 default_text_color: RenderColor::rgb(15, 23, 42),
                 grid_line_color: show_grid.then_some(RenderColor::rgb(226, 232, 240)),
@@ -189,6 +187,7 @@ impl Element for SheetGridElement {
             paint_cell_pane(
                 &self.view,
                 pane,
+                geom.zoom,
                 origin,
                 primary_color,
                 selection_tint,
@@ -285,6 +284,7 @@ impl Element for SheetGridElement {
 fn paint_cell_pane(
     view: &Entity<SheetWorkspaceView>,
     pane: &PaneRegion,
+    zoom: f32,
     origin: Point<Pixels>,
     primary_color: Hsla,
     selection_tint: Hsla,
@@ -293,6 +293,7 @@ fn paint_cell_pane(
     window: &mut Window,
     cx: &mut App,
 ) {
+    let s = zoom.max(0.10);
     let pane_bounds = to_window_bounds(origin, pane.clip_rect);
     window.with_content_mask(
         Some(ContentMask {
@@ -319,14 +320,15 @@ fn paint_cell_pane(
                     let key = TileKey::new(sheet, tr, tc);
                     let maybe_tile = view.read(cx).peek_cached_tile(key);
                     if let Some(tile) = maybe_tile {
-                        let tx =
-                            pane.clip_rect.x + ((tile.sheet_origin_x - pane.sheet_origin_x) as f32);
-                        let ty =
-                            pane.clip_rect.y + ((tile.sheet_origin_y - pane.sheet_origin_y) as f32);
+                        let tx = pane.clip_rect.x
+                            + ((tile.sheet_origin_x - pane.sheet_origin_x) as f32) * s;
+                        let ty = pane.clip_rect.y
+                            + ((tile.sheet_origin_y - pane.sheet_origin_y) as f32) * s;
                         let tile_origin = point(origin.x + px(tx), origin.y + px(ty));
-                        paint_display_list_cached(
+                        paint_display_list_scaled(
                             &tile.display_list,
                             tile_origin,
+                            s,
                             ui_font_family,
                             shaped_cache,
                             window,
@@ -342,33 +344,45 @@ fn paint_cell_pane(
                 CellCoord::new(*pane.rows.end(), *pane.cols.end()),
             );
             if selection.intersects(pane_range) {
-                let (sx, sy, sw, sh, ax0, ay0, ax1, ay1) = {
+                let (sx, sy, sw, sh, ax0, ay0, ax1, ay1, is_single_active) = {
                     let state = view.read(cx);
+                    let active_range = state
+                        .merged_index()
+                        .containing(active_cell)
+                        .unwrap_or_else(|| CellRange::single(active_cell));
                     let x0 = pane.clip_rect.x
                         + ((state.col_index().index_to_offset(selection.start.col)
-                            - pane.sheet_origin_x) as f32);
+                            - pane.sheet_origin_x) as f32)
+                            * s;
                     let x1 = pane.clip_rect.x
                         + ((state.col_index().index_end_offset(selection.end.col)
-                            - pane.sheet_origin_x) as f32);
+                            - pane.sheet_origin_x) as f32)
+                            * s;
                     let y0 = pane.clip_rect.y
                         + ((state.row_index().index_to_offset(selection.start.row)
-                            - pane.sheet_origin_y) as f32);
+                            - pane.sheet_origin_y) as f32)
+                            * s;
                     let y1 = pane.clip_rect.y
                         + ((state.row_index().index_end_offset(selection.end.row)
-                            - pane.sheet_origin_y) as f32);
+                            - pane.sheet_origin_y) as f32)
+                            * s;
 
                     let ac_x0 = pane.clip_rect.x
-                        + ((state.col_index().index_to_offset(active_cell.col)
-                            - pane.sheet_origin_x) as f32);
+                        + ((state.col_index().index_to_offset(active_range.start.col)
+                            - pane.sheet_origin_x) as f32)
+                            * s;
                     let ac_x1 = pane.clip_rect.x
-                        + ((state.col_index().index_end_offset(active_cell.col)
-                            - pane.sheet_origin_x) as f32);
+                        + ((state.col_index().index_end_offset(active_range.end.col)
+                            - pane.sheet_origin_x) as f32)
+                            * s;
                     let ac_y0 = pane.clip_rect.y
-                        + ((state.row_index().index_to_offset(active_cell.row)
-                            - pane.sheet_origin_y) as f32);
+                        + ((state.row_index().index_to_offset(active_range.start.row)
+                            - pane.sheet_origin_y) as f32)
+                            * s;
                     let ac_y1 = pane.clip_rect.y
-                        + ((state.row_index().index_end_offset(active_cell.row)
-                            - pane.sheet_origin_y) as f32);
+                        + ((state.row_index().index_end_offset(active_range.end.row)
+                            - pane.sheet_origin_y) as f32)
+                            * s;
 
                     (
                         x0,
@@ -379,10 +393,11 @@ fn paint_cell_pane(
                         ac_y0,
                         ac_x1,
                         ac_y1,
+                        selection == active_range,
                     )
                 };
 
-                if selection.start != selection.end {
+                if !is_single_active {
                     let sx1 = sx + sw;
                     let sy1 = sy + sh;
                     if ay0 > sy {
@@ -483,7 +498,10 @@ fn paint_headers(
         border_color,
     ));
 
-    // Column headers (frozen + scrolled)
+    // Column headers (frozen + scrolled) + double-line hidden column indicators (`M2-05`)
+    let s = geom.zoom.max(0.10);
+    let hdr_font_scale = s.clamp(0.70, 1.50);
+    let hidden_marker_color = cx.theme().primary.opacity(0.85);
     let col_panes = [
         geom.top_left_pane.as_ref().or(geom.left_pane.as_ref()),
         geom.top_pane.as_ref().or(geom.main_pane.as_ref()),
@@ -499,13 +517,15 @@ fn paint_headers(
             }),
             |window| {
                 for col in maybe_pane.cols.clone() {
-                    let (x, w) = {
+                    let (x, w, has_hidden_before) = {
                         let state = view.read(cx);
-                        let w = state.col_index().span_size(col);
+                        let w = state.col_index().span_size(col) * s;
                         let x = maybe_pane.clip_rect.x
                             + ((state.col_index().index_to_offset(col) - maybe_pane.sheet_origin_x)
-                                as f32);
-                        (x, w)
+                                as f32)
+                                * s;
+                        let has_hidden = state.col_index().has_hidden_before(col);
+                        (x, w, has_hidden)
                     };
                     if w <= 0.0 {
                         continue;
@@ -521,6 +541,16 @@ fn paint_headers(
                         to_window_bounds(origin, LogicalRect::new(x + w - 1.0, 0.0, 1.0, chh)),
                         border_color,
                     ));
+                    if has_hidden_before {
+                        window.paint_quad(fill(
+                            to_window_bounds(origin, LogicalRect::new(x, 0.0, 1.0, chh)),
+                            hidden_marker_color,
+                        ));
+                        window.paint_quad(fill(
+                            to_window_bounds(origin, LogicalRect::new(x + 2.5, 0.0, 1.0, chh)),
+                            hidden_marker_color,
+                        ));
+                    }
                     let label = SharedString::from(col_to_letters(col));
                     let fg = if is_selected {
                         header_active_fg
@@ -532,7 +562,7 @@ fn paint_headers(
                             window,
                             label,
                             ui_font_family.clone(),
-                            px(11.5),
+                            px(11.5 * hdr_font_scale),
                             is_selected,
                             false,
                             fg,
@@ -551,7 +581,7 @@ fn paint_headers(
         );
     }
 
-    // Row headers (frozen + scrolled)
+    // Row headers (frozen + scrolled) + double-line hidden row indicators (`M2-05`)
     let row_panes = [
         geom.top_left_pane.as_ref().or(geom.top_pane.as_ref()),
         geom.left_pane.as_ref().or(geom.main_pane.as_ref()),
@@ -572,13 +602,15 @@ fn paint_headers(
             }),
             |window| {
                 for row in maybe_pane.rows.clone() {
-                    let (y, h) = {
+                    let (y, h, has_hidden_before) = {
                         let state = view.read(cx);
-                        let h = state.row_index().span_size(row);
+                        let h = state.row_index().span_size(row) * s;
                         let y = maybe_pane.clip_rect.y
                             + ((state.row_index().index_to_offset(row) - maybe_pane.sheet_origin_y)
-                                as f32);
-                        (y, h)
+                                as f32)
+                                * s;
+                        let has_hidden = state.row_index().has_hidden_before(row);
+                        (y, h, has_hidden)
                     };
                     if h <= 0.0 {
                         continue;
@@ -594,6 +626,16 @@ fn paint_headers(
                         to_window_bounds(origin, LogicalRect::new(0.0, y + h - 1.0, rhw, 1.0)),
                         border_color,
                     ));
+                    if has_hidden_before {
+                        window.paint_quad(fill(
+                            to_window_bounds(origin, LogicalRect::new(0.0, y, rhw, 1.0)),
+                            hidden_marker_color,
+                        ));
+                        window.paint_quad(fill(
+                            to_window_bounds(origin, LogicalRect::new(0.0, y + 2.5, rhw, 1.0)),
+                            hidden_marker_color,
+                        ));
+                    }
                     let label = SharedString::from((row + 1).to_string());
                     let fg = if is_selected {
                         header_active_fg
@@ -605,7 +647,7 @@ fn paint_headers(
                             window,
                             label,
                             ui_font_family.clone(),
-                            px(11.0),
+                            px(11.0 * hdr_font_scale),
                             is_selected,
                             false,
                             fg,
@@ -768,18 +810,34 @@ fn register_grid_interactions(
         }
     });
 
-    // Scroll Wheel: smooth 2D scrolling over 1,000,000+ rows
+    // Scroll Wheel: Cmd/Ctrl + Wheel zooms (`10%–400%`); plain Wheel smoothly 2D-scrolls
     window.on_mouse_event({
         let view = view.clone();
         let hitbox = hitbox.clone();
+        let zoom_factor = geom.zoom.max(0.10);
         move |event: &ScrollEvent, phase, window, cx| {
             if !phase.bubble() || !hitbox.is_hovered(window) {
                 return;
             }
-            let (dx, dy) = match event.delta {
-                ScrollDelta::Pixels(pt) => {
-                    (-f64::from(f32::from(pt.x)), -f64::from(f32::from(pt.y)))
+            if event.modifiers.platform || event.modifiers.control {
+                let raw_dy = match event.delta {
+                    ScrollDelta::Pixels(pt) => f32::from(pt.y),
+                    ScrollDelta::Lines(pt) => pt.y * 12.0,
+                };
+                if raw_dy.abs() > 0.1 {
+                    let step = if raw_dy > 0.0 { 10 } else { -10 };
+                    view.update(cx, |state, cx| {
+                        state.zoom_step(step, window, cx);
+                    });
+                    cx.stop_propagation();
                 }
+                return;
+            }
+            let (dx, dy) = match event.delta {
+                ScrollDelta::Pixels(pt) => (
+                    -f64::from(f32::from(pt.x)) / f64::from(zoom_factor),
+                    -f64::from(f32::from(pt.y)) / f64::from(zoom_factor),
+                ),
                 ScrollDelta::Lines(pt) => (-f64::from(pt.x) * 45.0, -f64::from(pt.y) * 50.0),
             };
             if dx.abs() > 0.01 || dy.abs() > 0.01 {

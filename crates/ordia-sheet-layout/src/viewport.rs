@@ -95,23 +95,29 @@ pub enum GridHit {
 pub struct ViewportGeometry {
     /// Full canvas rectangle (`0, 0, canvas_width, canvas_height`).
     pub canvas_rect: LogicalRect,
-    /// Width of the row-number gutter on the left.
+    /// Width of the row-number gutter on the left (screen pixels).
     pub row_header_width: f32,
-    /// Height of the column-letter bar at the top.
+    /// Height of the column-letter bar at the top (screen pixels).
     pub col_header_height: f32,
+    /// Lossless canvas zoom factor (`1.0` = `100%`, clamped to `0.10..=4.0`).
+    pub zoom: f32,
     /// Effective frozen row/column counts (clamped if viewport is smaller than frozen area).
     pub freeze: FreezePane,
-    /// Pixel width of frozen columns (`cols 0..frozen_cols`).
+    /// Screen-space pixel width of frozen columns (`cols 0..frozen_cols`, scaled by `zoom`).
     pub frozen_width: f32,
-    /// Pixel height of frozen rows (`rows 0..frozen_rows`).
+    /// Screen-space pixel height of frozen rows (`rows 0..frozen_rows`, scaled by `zoom`).
     pub frozen_height: f32,
-    /// Clamped horizontal scroll offset (distance scrolled past `frozen_width`).
+    /// Unzoomed sheet-space width of frozen columns (`cols 0..frozen_cols`).
+    pub frozen_sheet_width: f64,
+    /// Unzoomed sheet-space height of frozen rows (`rows 0..frozen_rows`).
+    pub frozen_sheet_height: f64,
+    /// Clamped horizontal scroll offset in unzoomed sheet units (past `frozen_sheet_width`).
     pub scroll_x: f64,
-    /// Clamped vertical scroll offset (distance scrolled past `frozen_height`).
+    /// Clamped vertical scroll offset in unzoomed sheet units (past `frozen_sheet_height`).
     pub scroll_y: f64,
-    /// Maximum valid `scroll_x`.
+    /// Maximum valid `scroll_x` in unzoomed sheet units.
     pub max_scroll_x: f64,
-    /// Maximum valid `scroll_y`.
+    /// Maximum valid `scroll_y` in unzoomed sheet units.
     pub max_scroll_y: f64,
     /// Top-left frozen quadrant (`rows 0..frozen_rows`, `cols 0..frozen_cols`), if non-empty.
     pub top_left_pane: Option<PaneRegion>,
@@ -143,17 +149,37 @@ pub struct ViewportParams {
 }
 
 impl ViewportGeometry {
-    /// Computes the 4-quadrant frozen/scrollable viewport geometry and clamps scroll offsets.
+    /// Computes the 4-quadrant frozen/scrollable viewport geometry at `100%` (`zoom = 1.0`).
     #[must_use]
     pub fn compute(
         params: ViewportParams,
         row_index: &GridAxisIndex,
         col_index: &GridAxisIndex,
     ) -> Self {
+        Self::compute_zoomed(params, 1.0, row_index, col_index)
+    }
+
+    /// Computes the 4-quadrant frozen/scrollable viewport geometry at lossless `zoom` (`0.10..=4.0`).
+    #[must_use]
+    pub fn compute_zoomed(
+        params: ViewportParams,
+        zoom: f32,
+        row_index: &GridAxisIndex,
+        col_index: &GridAxisIndex,
+    ) -> Self {
+        let s = zoom.clamp(0.10, 4.0);
+        let s64 = f64::from(s);
         let cw = params.canvas_width.max(0.0);
         let ch = params.canvas_height.max(0.0);
-        let rhw = params.row_header_width.min(cw).max(0.0);
-        let chh = params.col_header_height.min(ch).max(0.0);
+        let header_scale = s.clamp(0.60, 1.80);
+        let rhw = (params.row_header_width * header_scale)
+            .round()
+            .min(cw)
+            .max(0.0);
+        let chh = (params.col_header_height * header_scale)
+            .round()
+            .min(ch)
+            .max(0.0);
 
         let data_w = (cw - rhw).max(0.0);
         let data_h = (ch - chh).max(0.0);
@@ -161,35 +187,39 @@ impl ViewportGeometry {
         let max_frozen_cols = params.freeze.frozen_cols.min(col_index.count());
         let max_frozen_rows = params.freeze.frozen_rows.min(row_index.count());
 
-        let raw_frozen_w = col_index.range_extent(0, max_frozen_cols) as f32;
-        let raw_frozen_h = row_index.range_extent(0, max_frozen_rows) as f32;
+        let raw_frozen_sheet_w = col_index.range_extent(0, max_frozen_cols);
+        let raw_frozen_sheet_h = row_index.range_extent(0, max_frozen_rows);
+        let raw_frozen_w = (raw_frozen_sheet_w * s64) as f32;
+        let raw_frozen_h = (raw_frozen_sheet_h * s64) as f32;
 
         // Ensure frozen panes never swallow the entire viewport when the window is narrow.
-        let (eff_frozen_cols, frozen_w) = if raw_frozen_w < data_w * 0.8 {
-            (max_frozen_cols, raw_frozen_w)
+        let (eff_frozen_cols, frozen_w, frozen_sheet_w) = if raw_frozen_w < data_w * 0.8 {
+            (max_frozen_cols, raw_frozen_w, raw_frozen_sheet_w)
         } else {
-            (0, 0.0)
+            (0, 0.0, 0.0)
         };
-        let (eff_frozen_rows, frozen_h) = if raw_frozen_h < data_h * 0.8 {
-            (max_frozen_rows, raw_frozen_h)
+        let (eff_frozen_rows, frozen_h, frozen_sheet_h) = if raw_frozen_h < data_h * 0.8 {
+            (max_frozen_rows, raw_frozen_h, raw_frozen_sheet_h)
         } else {
-            (0, 0.0)
+            (0, 0.0, 0.0)
         };
 
-        let scrollable_view_w = f64::from((data_w - frozen_w).max(0.0));
-        let scrollable_view_h = f64::from((data_h - frozen_h).max(0.0));
+        let scrollable_screen_w = (data_w - frozen_w).max(0.0);
+        let scrollable_screen_h = (data_h - frozen_h).max(0.0);
+        let scrollable_sheet_w = f64::from(scrollable_screen_w) / s64;
+        let scrollable_sheet_h = f64::from(scrollable_screen_h) / s64;
 
-        let unfrozen_sheet_w = (col_index.total_extent() - f64::from(frozen_w)).max(0.0);
-        let unfrozen_sheet_h = (row_index.total_extent() - f64::from(frozen_h)).max(0.0);
+        let unfrozen_sheet_w = (col_index.total_extent() - frozen_sheet_w).max(0.0);
+        let unfrozen_sheet_h = (row_index.total_extent() - frozen_sheet_h).max(0.0);
 
-        let max_scroll_x = (unfrozen_sheet_w - scrollable_view_w).max(0.0);
-        let max_scroll_y = (unfrozen_sheet_h - scrollable_view_h).max(0.0);
+        let max_scroll_x = (unfrozen_sheet_w - scrollable_sheet_w).max(0.0);
+        let max_scroll_y = (unfrozen_sheet_h - scrollable_sheet_h).max(0.0);
 
         let clamped_scroll_x = params.scroll_x.clamp(0.0, max_scroll_x);
         let clamped_scroll_y = params.scroll_y.clamp(0.0, max_scroll_y);
 
-        let scrolled_sheet_x = f64::from(frozen_w) + clamped_scroll_x;
-        let scrolled_sheet_y = f64::from(frozen_h) + clamped_scroll_y;
+        let scrolled_sheet_x = frozen_sheet_w + clamped_scroll_x;
+        let scrolled_sheet_y = frozen_sheet_h + clamped_scroll_y;
 
         let frozen_col_range = if eff_frozen_cols > 0 && frozen_w > 0.0 {
             Some(0..=(eff_frozen_cols - 1))
@@ -203,9 +233,9 @@ impl ViewportGeometry {
         };
 
         let scrolled_col_range =
-            col_index.visible_range(eff_frozen_cols, scrolled_sheet_x, scrollable_view_w);
+            col_index.visible_range(eff_frozen_cols, scrolled_sheet_x, scrollable_sheet_w);
         let scrolled_row_range =
-            row_index.visible_range(eff_frozen_rows, scrolled_sheet_y, scrollable_view_h);
+            row_index.visible_range(eff_frozen_rows, scrolled_sheet_y, scrollable_sheet_h);
 
         let top_left_pane = match (frozen_row_range.clone(), frozen_col_range.clone()) {
             (Some(rows), Some(cols)) => Some(PaneRegion {
@@ -219,13 +249,8 @@ impl ViewportGeometry {
         };
 
         let top_pane = match (frozen_row_range, scrolled_col_range.clone()) {
-            (Some(rows), Some(cols)) if scrollable_view_w > 0.0 => Some(PaneRegion {
-                clip_rect: LogicalRect::new(
-                    rhw + frozen_w,
-                    chh,
-                    scrollable_view_w as f32,
-                    frozen_h,
-                ),
+            (Some(rows), Some(cols)) if scrollable_screen_w > 0.0 => Some(PaneRegion {
+                clip_rect: LogicalRect::new(rhw + frozen_w, chh, scrollable_screen_w, frozen_h),
                 rows,
                 cols,
                 sheet_origin_x: scrolled_sheet_x,
@@ -235,13 +260,8 @@ impl ViewportGeometry {
         };
 
         let left_pane = match (scrolled_row_range.clone(), frozen_col_range) {
-            (Some(rows), Some(cols)) if scrollable_view_h > 0.0 => Some(PaneRegion {
-                clip_rect: LogicalRect::new(
-                    rhw,
-                    chh + frozen_h,
-                    frozen_w,
-                    scrollable_view_h as f32,
-                ),
+            (Some(rows), Some(cols)) if scrollable_screen_h > 0.0 => Some(PaneRegion {
+                clip_rect: LogicalRect::new(rhw, chh + frozen_h, frozen_w, scrollable_screen_h),
                 rows,
                 cols,
                 sheet_origin_x: 0.0,
@@ -251,13 +271,13 @@ impl ViewportGeometry {
         };
 
         let main_pane = match (scrolled_row_range, scrolled_col_range) {
-            (Some(rows), Some(cols)) if scrollable_view_w > 0.0 && scrollable_view_h > 0.0 => {
+            (Some(rows), Some(cols)) if scrollable_screen_w > 0.0 && scrollable_screen_h > 0.0 => {
                 Some(PaneRegion {
                     clip_rect: LogicalRect::new(
                         rhw + frozen_w,
                         chh + frozen_h,
-                        scrollable_view_w as f32,
-                        scrollable_view_h as f32,
+                        scrollable_screen_w,
+                        scrollable_screen_h,
                     ),
                     rows,
                     cols,
@@ -272,12 +292,15 @@ impl ViewportGeometry {
             canvas_rect: LogicalRect::new(0.0, 0.0, cw, ch),
             row_header_width: rhw,
             col_header_height: chh,
+            zoom: s,
             freeze: FreezePane {
                 frozen_rows: eff_frozen_rows,
                 frozen_cols: eff_frozen_cols,
             },
             frozen_width: frozen_w,
             frozen_height: frozen_h,
+            frozen_sheet_width: frozen_sheet_w,
+            frozen_sheet_height: frozen_sheet_h,
             scroll_x: clamped_scroll_x,
             scroll_y: clamped_scroll_y,
             max_scroll_x,
@@ -289,7 +312,7 @@ impl ViewportGeometry {
         }
     }
 
-    /// Hit-tests a canvas-local `(x, y)` point in `O(log N)` time.
+    /// Hit-tests a canvas-local `(x, y)` point in `O(log N)` time (accounting for `self.zoom`).
     #[must_use]
     pub fn hit_test(
         &self,
@@ -306,14 +329,15 @@ impl ViewportGeometry {
         if in_row_header && in_col_header {
             return GridHit::CornerHeader;
         }
+        let s64 = f64::from(self.zoom.max(0.10));
 
         let col = if !in_row_header {
             let sheet_x = if x < self.row_header_width + self.frozen_width {
-                f64::from(x - self.row_header_width)
+                f64::from(x - self.row_header_width) / s64
             } else {
-                f64::from(self.frozen_width)
+                self.frozen_sheet_width
                     + self.scroll_x
-                    + f64::from(x - self.row_header_width - self.frozen_width)
+                    + f64::from(x - self.row_header_width - self.frozen_width) / s64
             };
             if sheet_x >= col_index.total_extent() {
                 return GridHit::Outside;
@@ -325,11 +349,11 @@ impl ViewportGeometry {
 
         let row = if !in_col_header {
             let sheet_y = if y < self.col_header_height + self.frozen_height {
-                f64::from(y - self.col_header_height)
+                f64::from(y - self.col_header_height) / s64
             } else {
-                f64::from(self.frozen_height)
+                self.frozen_sheet_height
                     + self.scroll_y
-                    + f64::from(y - self.col_header_height - self.frozen_height)
+                    + f64::from(y - self.col_header_height - self.frozen_height) / s64
             };
             if sheet_y >= row_index.total_extent() {
                 return GridHit::Outside;
@@ -355,8 +379,9 @@ impl ViewportGeometry {
         row_index: &GridAxisIndex,
         col_index: &GridAxisIndex,
     ) -> Option<LogicalRect> {
-        let w = col_index.span_size(coord.col);
-        let h = row_index.span_size(coord.row);
+        let s = self.zoom.max(0.10);
+        let w = col_index.span_size(coord.col) * s;
+        let h = row_index.span_size(coord.row) * s;
         if w <= 0.0 || h <= 0.0 {
             return None;
         }
@@ -368,14 +393,14 @@ impl ViewportGeometry {
 
         let (vx, min_x, max_x) = if is_frozen_col {
             (
-                self.row_header_width + (cell_sheet_x as f32),
+                self.row_header_width + (cell_sheet_x as f32) * s,
                 self.row_header_width,
                 self.row_header_width + self.frozen_width,
             )
         } else {
-            let local_x = cell_sheet_x - (f64::from(self.frozen_width) + self.scroll_x);
+            let local_x = cell_sheet_x - (self.frozen_sheet_width + self.scroll_x);
             (
-                self.row_header_width + self.frozen_width + (local_x as f32),
+                self.row_header_width + self.frozen_width + (local_x as f32) * s,
                 self.row_header_width + self.frozen_width,
                 self.canvas_rect.width,
             )
@@ -383,14 +408,14 @@ impl ViewportGeometry {
 
         let (vy, min_y, max_y) = if is_frozen_row {
             (
-                self.col_header_height + (cell_sheet_y as f32),
+                self.col_header_height + (cell_sheet_y as f32) * s,
                 self.col_header_height,
                 self.col_header_height + self.frozen_height,
             )
         } else {
-            let local_y = cell_sheet_y - (f64::from(self.frozen_height) + self.scroll_y);
+            let local_y = cell_sheet_y - (self.frozen_sheet_height + self.scroll_y);
             (
-                self.col_header_height + self.frozen_height + (local_y as f32),
+                self.col_header_height + self.frozen_height + (local_y as f32) * s,
                 self.col_header_height + self.frozen_height,
                 self.canvas_rect.height,
             )
@@ -403,7 +428,7 @@ impl ViewportGeometry {
         Some(LogicalRect::new(vx, vy, w, h))
     }
 
-    /// Computes minimal adjusted `(scroll_x, scroll_y)` so `coord` is fully visible inside the viewport.
+    /// Computes minimal adjusted `(scroll_x, scroll_y)` (in unzoomed sheet units) so `coord` is fully visible.
     #[must_use]
     pub fn scroll_into_view(
         &self,
@@ -413,17 +438,18 @@ impl ViewportGeometry {
     ) -> (f64, f64) {
         let mut next_x = self.scroll_x;
         let mut next_y = self.scroll_y;
+        let s64 = f64::from(self.zoom.max(0.10));
 
         let scrollable_w = f64::from(
             (self.canvas_rect.width - self.row_header_width - self.frozen_width).max(0.0),
-        );
+        ) / s64;
         let scrollable_h = f64::from(
             (self.canvas_rect.height - self.col_header_height - self.frozen_height).max(0.0),
-        );
+        ) / s64;
 
         if coord.col >= self.freeze.frozen_cols && scrollable_w > 0.0 {
-            let col_start = col_index.index_to_offset(coord.col) - f64::from(self.frozen_width);
-            let col_end = col_index.index_end_offset(coord.col) - f64::from(self.frozen_width);
+            let col_start = col_index.index_to_offset(coord.col) - self.frozen_sheet_width;
+            let col_end = col_index.index_end_offset(coord.col) - self.frozen_sheet_width;
             if col_start < next_x {
                 next_x = col_start;
             } else if col_end > next_x + scrollable_w {
@@ -432,8 +458,8 @@ impl ViewportGeometry {
         }
 
         if coord.row >= self.freeze.frozen_rows && scrollable_h > 0.0 {
-            let row_start = row_index.index_to_offset(coord.row) - f64::from(self.frozen_height);
-            let row_end = row_index.index_end_offset(coord.row) - f64::from(self.frozen_height);
+            let row_start = row_index.index_to_offset(coord.row) - self.frozen_sheet_height;
+            let row_end = row_index.index_end_offset(coord.row) - self.frozen_sheet_height;
             if row_start < next_y {
                 next_y = row_start;
             } else if row_end > next_y + scrollable_h {

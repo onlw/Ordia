@@ -481,3 +481,98 @@ fn tile_cache_single_cell_invalidation_and_scroll_p99_benchmark(cx: &mut TestApp
     })
     .expect("run tile cache invalidation and scroll P99 benchmark");
 }
+
+#[gpui_kit::test]
+fn merged_selection_hidden_rows_gridlines_toggle_and_lossless_zoom(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        register_sheet_keybindings(cx);
+    });
+
+    let (handle, view) = cx.update(|cx| {
+        let mut doc = SheetDocument::new_empty("M205Features.xlsx").expect("doc");
+        let merged = ordia_sheet_model::CellRange::new(CellCoord::new(1, 1), CellCoord::new(2, 3));
+        doc.set_cell_input(merged.start, "Merged B2:D3")
+            .expect("B2");
+        doc.merge_range(merged).expect("merge B2:D3");
+        doc.set_row_hidden(4, true).expect("hide row 5");
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds::new(
+                    Default::default(),
+                    size(px(1080.), px(720.)),
+                ))),
+                ..WindowOptions::default()
+            },
+            cx,
+            |window, cx| cx.new(|cx| SheetWorkspaceView::new(doc, window, cx)),
+        )
+        .expect("open window")
+    });
+
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+
+        // 1. Clicking covered cell C3 (`(2, 2)`) selects full merged range B2:D3 with anchor B2!
+        window.click_at("sheet-grid-surface", unscrolled_cell_offset(2, 2), cx);
+        assert_eq!(window.find("name-box").label(), Some("B2:D3"));
+        assert_eq!(view.read(cx).document().active_cell(), CellCoord::new(1, 1));
+
+        // 2. Row 5 (`row == 4`) is hidden (`0px`): clicking where row 5 used to sit hits row 6 (`B6`)!
+        window.click_at("sheet-grid-surface", unscrolled_cell_offset(4, 1), cx);
+        assert_eq!(window.find("name-box").label(), Some("B6"));
+
+        // 3. Gridlines toggle button + Undo/Redo reversibility.
+        assert!(view.read(cx).is_grid_lines_visible());
+        window.click("toggle-gridlines", cx);
+        assert!(!view.read(cx).is_grid_lines_visible());
+        window.click_at("sheet-grid-surface", unscrolled_cell_offset(0, 0), cx);
+        window.press("secondary-z", cx);
+        assert!(view.read(cx).is_grid_lines_visible());
+
+        // 4. Lossless 10%–400% zoom via buttons, shortcuts, clamping, and zero tile invalidations.
+        window.render_frame(cx);
+        let (_cached0, _hits0, _misses0, inv0) = view.read(cx).tile_cache_stats();
+        assert_eq!(window.find("zoom-reset-btn").label(), Some("100%"));
+
+        window.click("zoom-in-btn", cx);
+        assert_eq!(view.read(cx).zoom_percent(), 110);
+        assert_eq!(window.find("zoom-reset-btn").label(), Some("110%"));
+
+        window.click("zoom-out-btn", cx);
+        window.click("zoom-out-btn", cx);
+        assert_eq!(view.read(cx).zoom_percent(), 90);
+
+        window.click("zoom-reset-btn", cx);
+        assert_eq!(view.read(cx).zoom_percent(), 100);
+
+        // Clamp bounds at 400% and 10%, then test 200% zoomed pointer hit-testing.
+        view.update(cx, |state, cx| {
+            state.set_zoom_percent(999, window, cx);
+        });
+        assert_eq!(view.read(cx).zoom_percent(), 400);
+        view.update(cx, |state, cx| {
+            state.set_zoom_percent(1, window, cx);
+        });
+        assert_eq!(view.read(cx).zoom_percent(), 10);
+        view.update(cx, |state, cx| {
+            state.set_zoom_percent(200, window, cx);
+        });
+        window.render_frame(cx);
+        let (_cached1, _hits1, _misses1, inv1) = view.read(cx).tile_cache_stats();
+        assert_eq!(
+            inv1, inv0,
+            "changing lossless zoom must never invalidate unzoomed tile DisplayLists"
+        );
+
+        // At 200% zoom (`rhw = 97px`, `chh = 43px`, col width = `180px`, row height = `50px`),
+        // `(320, 60)` lands squarely inside `B1` (`277..457 × 43..93`), whereas at 100% zoom `(320, 60)` would hit `C2`!
+        window.click_at("sheet-grid-surface", point(px(320.0), px(60.0)), cx);
+        assert_eq!(window.find("name-box").label(), Some("B1"));
+
+        // Shortcut `Cmd/Ctrl+0` resets zoom to 100%.
+        window.press("secondary-0", cx);
+        assert_eq!(view.read(cx).zoom_percent(), 100);
+    })
+    .expect("verify M2-05 merged cells, hidden markers, gridlines toggle, and lossless zoom");
+}

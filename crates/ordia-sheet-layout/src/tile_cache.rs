@@ -3,6 +3,7 @@
 
 use crate::axis::GridAxisIndex;
 use crate::cell_style_render::build_styled_tile;
+use crate::merged::MergedRangeIndex;
 use crate::viewport::{PaneRegion, ViewportGeometry};
 use ordia_render::{Color, DisplayList};
 use ordia_sheet_model::{CellCoord, CellRange, MAX_COLS, MAX_ROWS, SheetDamage, SheetDocument};
@@ -319,8 +320,9 @@ pub fn plan_viewport_tiles(
     if let Some(main) = geom.main_pane.as_ref() {
         let min_r = geom.freeze.frozen_rows;
         let min_c = geom.freeze.frozen_cols;
-        let w = f64::from(main.clip_rect.width.max(1.0));
-        let h = f64::from(main.clip_rect.height.max(1.0));
+        let s64 = f64::from(geom.zoom.max(0.10));
+        let w = f64::from(main.clip_rect.width.max(1.0)) / s64;
+        let h = f64::from(main.clip_rect.height.max(1.0)) / s64;
         let pf_x = (main.sheet_origin_x - w).max(col_index.index_to_offset(min_c));
         let pf_y = (main.sheet_origin_y - h).max(row_index.index_to_offset(min_r));
         if let (Some(rows), Some(cols)) = (
@@ -361,7 +363,8 @@ fn collect_pane_tiles(
     }
 }
 
-/// Builds a tile-local [`CachedTile`] (`64×16` cells) directly into a [`DisplayList`].
+/// Builds a tile-local [`CachedTile`] (`64×16` cells) directly into a [`DisplayList`],
+/// automatically indexing any merged ranges on `key.sheet`.
 #[must_use]
 pub fn build_tile_display_list(
     doc: &SheetDocument,
@@ -370,5 +373,20 @@ pub fn build_tile_display_list(
     col_index: &GridAxisIndex,
     theme: TileRenderTheme,
 ) -> CachedTile {
-    build_styled_tile(doc, key, row_index, col_index, theme)
+    let raw = doc.merged_ranges_on(key.sheet).unwrap_or_default();
+    let merges = MergedRangeIndex::from_ranges(&raw);
+    build_styled_tile(doc, key, row_index, col_index, &merges, theme)
+}
+
+/// Builds a tile-local [`CachedTile`] (`64×16` cells) reusing a prebuilt [`MergedRangeIndex`].
+#[must_use]
+pub fn build_tile_display_list_with_merges(
+    doc: &SheetDocument,
+    key: TileKey,
+    row_index: &GridAxisIndex,
+    col_index: &GridAxisIndex,
+    merged_index: &MergedRangeIndex,
+    theme: TileRenderTheme,
+) -> CachedTile {
+    build_styled_tile(doc, key, row_index, col_index, merged_index, theme)
 }

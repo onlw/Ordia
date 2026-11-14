@@ -1,6 +1,6 @@
 //! Reversible operations and transactions for spreadsheet mutations (`AGENTS.md` §4.3).
 
-use ordia_sheet_engine::{CellCoord, CellStyle, EngineError, FreezePane, SheetEngine};
+use ordia_sheet_engine::{CellCoord, CellRange, CellStyle, EngineError, FreezePane, SheetEngine};
 use serde::{Deserialize, Serialize};
 
 /// Atomic, reversible mutation applied to a [`SheetEngine`].
@@ -62,6 +62,46 @@ pub enum SheetOp {
         /// New width in logical pixels.
         new_width_px: f32,
     },
+    /// Hides or unhides a worksheet row (`M2-05`).
+    SetRowHidden {
+        /// Zero-based worksheet index.
+        sheet: u32,
+        /// Zero-based row index.
+        row: u32,
+        /// Previous visibility flag (`true` = hidden).
+        old_hidden: bool,
+        /// New visibility flag (`true` = hidden).
+        new_hidden: bool,
+    },
+    /// Hides or unhides a worksheet column (`M2-05`).
+    SetColHidden {
+        /// Zero-based worksheet index.
+        sheet: u32,
+        /// Zero-based column index.
+        col: u32,
+        /// Previous visibility flag (`true` = hidden).
+        old_hidden: bool,
+        /// New visibility flag (`true` = hidden).
+        new_hidden: bool,
+    },
+    /// Shows or hides worksheet gridlines (`M2-05`).
+    SetShowGridLines {
+        /// Zero-based worksheet index.
+        sheet: u32,
+        /// Previous gridline visibility.
+        old_show: bool,
+        /// New gridline visibility.
+        new_show: bool,
+    },
+    /// Merges (`merged = true`) or unmerges (`merged = false`) a rectangular cell range (`M2-05`).
+    SetMerged {
+        /// Zero-based worksheet index.
+        sheet: u32,
+        /// Target rectangular cell range.
+        range: CellRange,
+        /// `true` to merge `range`, `false` to unmerge `range`.
+        merged: bool,
+    },
 }
 
 impl SheetOp {
@@ -122,6 +162,46 @@ impl SheetOp {
                 old_width_px: *new_width_px,
                 new_width_px: *old_width_px,
             },
+            Self::SetRowHidden {
+                sheet,
+                row,
+                old_hidden,
+                new_hidden,
+            } => Self::SetRowHidden {
+                sheet: *sheet,
+                row: *row,
+                old_hidden: *new_hidden,
+                new_hidden: *old_hidden,
+            },
+            Self::SetColHidden {
+                sheet,
+                col,
+                old_hidden,
+                new_hidden,
+            } => Self::SetColHidden {
+                sheet: *sheet,
+                col: *col,
+                old_hidden: *new_hidden,
+                new_hidden: *old_hidden,
+            },
+            Self::SetShowGridLines {
+                sheet,
+                old_show,
+                new_show,
+            } => Self::SetShowGridLines {
+                sheet: *sheet,
+                old_show: *new_show,
+                new_show: *old_show,
+            },
+            Self::SetMerged {
+                sheet,
+                range,
+                merged,
+            } => Self::SetMerged {
+                sheet: *sheet,
+                range: *range,
+                merged: !*merged,
+            },
         }
     }
 
@@ -169,6 +249,42 @@ impl SheetOp {
                 ..
             } => {
                 engine.set_col_width(*sheet, *col, *new_width_px)?;
+                Ok(false)
+            }
+            Self::SetRowHidden {
+                sheet,
+                row,
+                new_hidden,
+                ..
+            } => {
+                engine.set_row_hidden(*sheet, *row, *new_hidden)?;
+                Ok(false)
+            }
+            Self::SetColHidden {
+                sheet,
+                col,
+                new_hidden,
+                ..
+            } => {
+                engine.set_col_hidden(*sheet, *col, *new_hidden)?;
+                Ok(false)
+            }
+            Self::SetShowGridLines {
+                sheet, new_show, ..
+            } => {
+                engine.set_show_grid_lines(*sheet, *new_show)?;
+                Ok(false)
+            }
+            Self::SetMerged {
+                sheet,
+                range,
+                merged,
+            } => {
+                if *merged {
+                    engine.merge_range(*sheet, *range)?;
+                } else {
+                    engine.unmerge_range(*sheet, *range)?;
+                }
                 Ok(false)
             }
         }

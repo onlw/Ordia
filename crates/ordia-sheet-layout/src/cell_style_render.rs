@@ -4,14 +4,15 @@
 //! alignment, indentation, automatic CJK/Latin line wrapping, and overflow into empty neighbors.
 
 use crate::axis::GridAxisIndex;
+use crate::merged::MergedRangeIndex;
 use crate::tile_cache::{CachedTile, TileKey, TileRenderTheme};
 use ordia_render::{
     Color, DashPattern, DisplayList, FontWeight, Point, RectF, StrokeStyle, TextHAlign,
     TextRunStyle,
 };
 use ordia_sheet_model::{
-    BorderEdge, BorderLineStyle, CellBorders, CellCoord, CellStyle, CellValue, ColorRgba,
-    HorizontalAlign, MAX_COLS, SheetDocument, VerticalAlign,
+    BorderEdge, BorderLineStyle, CellBorders, CellCoord, CellRange, CellStyle, CellValue,
+    ColorRgba, HorizontalAlign, MAX_COLS, SheetDocument, VerticalAlign,
 };
 use ordia_text::is_cjk_char;
 
@@ -271,7 +272,15 @@ fn resolve_h_align(style: &CellStyle, val: &CellValue) -> TextHAlign {
     }
 }
 
-fn is_empty_for_overflow(doc: &SheetDocument, sheet: u32, coord: CellCoord) -> bool {
+fn is_empty_for_overflow(
+    doc: &SheetDocument,
+    sheet: u32,
+    coord: CellCoord,
+    merged_index: &MergedRangeIndex,
+) -> bool {
+    if merged_index.containing(coord).is_some() {
+        return false;
+    }
     matches!(
         doc.cell_value_on(sheet, coord).unwrap_or_default(),
         CellValue::Empty
@@ -281,8 +290,7 @@ fn is_empty_for_overflow(doc: &SheetDocument, sheet: u32, coord: CellCoord) -> b
         .unwrap_or(true)
 }
 
-/// Computes `(extra_left_cols, extra_right_cols, extra_left_px, extra_right_px)` when single-line
-/// non-wrapped text overflows into adjacent empty cells without crossing explicit vertical borders.
+#[allow(clippy::too_many_arguments)]
 fn compute_overflow_extent(
     doc: &SheetDocument,
     sheet: u32,
@@ -291,6 +299,7 @@ fn compute_overflow_extent(
     h_align: TextHAlign,
     needed_extra_px: f32,
     col_index: &GridAxisIndex,
+    merged_index: &MergedRangeIndex,
 ) -> (u32, u32, f32, f32) {
     if needed_extra_px <= 0.5 || style.wrap_text || style.horizontal_align == HorizontalAlign::Fill
     {
@@ -311,7 +320,7 @@ fn compute_overflow_extent(
                 cols += 1;
                 continue;
             }
-            if !is_empty_for_overflow(doc, sheet, next_coord) {
+            if !is_empty_for_overflow(doc, sheet, next_coord, merged_index) {
                 break;
             }
             let next_style = doc.cell_style_on(sheet, next_coord).unwrap_or_default();
@@ -343,7 +352,7 @@ fn compute_overflow_extent(
                 cols += 1;
                 continue;
             }
-            if !is_empty_for_overflow(doc, sheet, prev_coord) {
+            if !is_empty_for_overflow(doc, sheet, prev_coord, merged_index) {
                 break;
             }
             let prev_style = doc.cell_style_on(sheet, prev_coord).unwrap_or_default();
@@ -383,6 +392,7 @@ pub(crate) fn build_styled_tile(
     key: TileKey,
     row_index: &GridAxisIndex,
     col_index: &GridAxisIndex,
+    merged_index: &MergedRangeIndex,
     theme: TileRenderTheme,
 ) -> CachedTile {
     let range = key.cell_range();
@@ -426,13 +436,34 @@ pub(crate) fn build_styled_tile(
         .find(|s| s.index == key.sheet)
         .and_then(|s| s.used_range);
 
-    // Track suppressed vertical gridline boundaries `suppressed_v[r_off * c_count + c_off]`
-    // where `c_off` (`0..c_count`) marks the right edge of column `range.start.col + c_off`.
+    // Track suppressed vertical & horizontal gridline boundaries inside the tile.
     let mut suppressed_v = vec![false; r_count * c_count];
+    let mut suppressed_h = vec![false; r_count * c_count];
+
+    let mut tile_merges: Vec<CellRange> = Vec::new();
+    merged_index.intersecting(range, &mut tile_merges);
+    for m in &tile_merges {
+        let mr0 = m.start.row.max(range.start.row);
+        let mr1 = m.end.row.min(range.end.row);
+        let mc0 = m.start.col.max(range.start.col);
+        let mc1 = m.end.col.min(range.end.col);
+        for row in mr0..=mr1 {
+            let r_off = (row - range.start.row) as usize;
+            for col in mc0..=mc1 {
+                let c_off = (col - range.start.col) as usize;
+                if col < m.end.col {
+                    suppressed_v[r_off * c_count + c_off] = true;
+                }
+                if row < m.end.row {
+                    suppressed_h[r_off * c_count + c_off] = true;
+                }
+            }
+        }
+    }
 
     struct PreparedCell {
-        r_off: usize,
-        c_off: usize,
+        coord: CellCoord,
+        is_merged: bool,
         cx: f32,
         ry: f32,
         cw: f32,
@@ -466,6 +497,9 @@ pub(crate) fn build_styled_tile(
                     continue;
                 }
                 let coord = CellCoord::new(row, col);
+                if merged_index.containing(coord).is_some() {
+                    continue;
+                }
                 let text = doc
                     .cell_display_text_on(key.sheet, coord)
                     .unwrap_or_default();
@@ -490,6 +524,7 @@ pub(crate) fn build_styled_tile(
                         h_align,
                         est_w - inner_w,
                         col_index,
+                        merged_index,
                     );
                     for step in 0..rc {
                         let idx_c = c_off + step as usize;
@@ -505,8 +540,8 @@ pub(crate) fn build_styled_tile(
                 }
 
                 prepared.push(PreparedCell {
-                    r_off,
-                    c_off,
+                    coord,
+                    is_merged: false,
                     cx,
                     ry,
                     cw,
@@ -519,15 +554,70 @@ pub(crate) fn build_styled_tile(
         }
     }
 
-    // Pass 1: Gridlines (suppressing vertical segments crossed by overflowing text).
+    // Prepare intersecting merged cells (including cross-tile merges whose anchor is outside `range`).
+    for m in &tile_merges {
+        let mx0 = (col_index.index_to_offset(m.start.col) - sheet_origin_x) as f32;
+        let mx1 = (col_index.index_end_offset(m.end.col) - sheet_origin_x) as f32;
+        let my0 = (row_index.index_to_offset(m.start.row) - sheet_origin_y) as f32;
+        let my1 = (row_index.index_end_offset(m.end.row) - sheet_origin_y) as f32;
+        let mw = (mx1 - mx0).max(0.0);
+        let mh = (my1 - my0).max(0.0);
+        if mw <= 0.0 || mh <= 0.0 {
+            continue;
+        }
+        let anchor = m.start;
+        let mut style = doc.cell_style_on(key.sheet, anchor).unwrap_or_default();
+        if style.borders.right.is_none() && m.end.col > anchor.col {
+            style.borders.right = doc
+                .cell_style_on(key.sheet, CellCoord::new(anchor.row, m.end.col))
+                .ok()
+                .and_then(|s| s.borders.right);
+        }
+        if style.borders.bottom.is_none() && m.end.row > anchor.row {
+            style.borders.bottom = doc
+                .cell_style_on(key.sheet, CellCoord::new(m.end.row, anchor.col))
+                .ok()
+                .and_then(|s| s.borders.bottom);
+        }
+        let text = doc
+            .cell_display_text_on(key.sheet, anchor)
+            .unwrap_or_default();
+        let val = if text.is_empty() {
+            CellValue::Empty
+        } else {
+            doc.cell_value_on(key.sheet, anchor).unwrap_or_default()
+        };
+        prepared.push(PreparedCell {
+            coord: anchor,
+            is_merged: true,
+            cx: mx0,
+            ry: my0,
+            cw: mw,
+            rh: mh,
+            style,
+            text,
+            val,
+        });
+    }
+
+    // Pass 1: Gridlines (suppressing segments inside merged ranges or crossed by overflowing text).
     if let Some(grid_c) = theme.grid_line_color {
         for r_off in 0..r_count {
             let h = local_y[r_off + 1] - local_y[r_off];
-            if h > 0.0 {
-                dl.fill_rect(
-                    RectF::new(0.0, local_y[r_off + 1] - 1.0, tile_w, 1.0),
-                    grid_c,
-                );
+            if h <= 0.0 {
+                continue;
+            }
+            let y = local_y[r_off + 1] - 1.0;
+            let any_suppressed = (0..c_count).any(|c| suppressed_h[r_off * c_count + c]);
+            if !any_suppressed {
+                dl.fill_rect(RectF::new(0.0, y, tile_w, 1.0), grid_c);
+            } else {
+                for c_off in 0..c_count {
+                    let w = local_x[c_off + 1] - local_x[c_off];
+                    if w > 0.0 && !suppressed_h[r_off * c_count + c_off] {
+                        dl.fill_rect(RectF::new(local_x[c_off], y, w, 1.0), grid_c);
+                    }
+                }
             }
         }
         for c_off in 0..c_count {
@@ -550,54 +640,63 @@ pub(crate) fn build_styled_tile(
         }
     }
 
-    // Pass 2: Cell background fills.
+    let tile_clip = RectF::new(0.0, 0.0, tile_w, tile_h);
+
+    // Pass 2: Cell background fills (clamped to tile bounds for cross-tile merged cells).
     for cell in &prepared {
         if let Some(fill_rgb) = cell.style.fill_color {
-            dl.fill_rect(
-                RectF::new(
-                    cell.cx,
-                    cell.ry,
-                    (cell.cw - 1.0).max(0.0),
-                    (cell.rh - 1.0).max(0.0),
-                ),
-                to_render_color(fill_rgb),
-            );
+            let fx0 = cell.cx.max(0.0);
+            let fy0 = cell.ry.max(0.0);
+            let fx1 = (cell.cx + cell.cw - 1.0).min(tile_w);
+            let fy1 = (cell.ry + cell.rh - 1.0).min(tile_h);
+            if fx1 > fx0 && fy1 > fy0 {
+                dl.fill_rect(
+                    RectF::new(fx0, fy0, fx1 - fx0, fy1 - fy0),
+                    to_render_color(fill_rgb),
+                );
+            }
         }
     }
 
-    // Pass 3: Cell borders (above fills and gridlines).
+    // Pass 3: Cell borders (clipped to tile bounds when a merged cell crosses a tile seam).
     for cell in &prepared {
-        draw_cell_borders_into(
-            &mut dl,
-            RectF::new(cell.cx, cell.ry, cell.cw, cell.rh),
-            &cell.style.borders,
-        );
+        let cell_rect = RectF::new(cell.cx, cell.ry, cell.cw, cell.rh);
+        if cell.is_merged
+            && (cell.cx < 0.0
+                || cell.ry < 0.0
+                || cell.cx + cell.cw > tile_w
+                || cell.ry + cell.rh > tile_h)
+        {
+            dl.with_clip(tile_clip, |clipped| {
+                draw_cell_borders_into(clipped, cell_rect, &cell.style.borders);
+            });
+        } else {
+            draw_cell_borders_into(&mut dl, cell_rect, &cell.style.borders);
+        }
     }
 
-    // Pass 4: Cell text (alignment, indent, multi-line wrap, vertical align, and overflow clip).
+    // Pass 4: Cell text (alignment, indent, multi-line wrap, vertical align, and overflow/tile clip).
     for cell in &prepared {
         if cell.text.is_empty() {
             continue;
         }
-        let coord = CellCoord::new(
-            range.start.row + cell.r_off as u32,
-            range.start.col + cell.c_off as u32,
-        );
         emit_cell_text(
             &mut dl,
             doc,
             key.sheet,
-            coord,
+            cell.coord,
+            cell.is_merged,
+            tile_clip,
             RectF::new(cell.cx, cell.ry, cell.cw, cell.rh),
             &cell.style,
             &cell.text,
             &cell.val,
             col_index,
+            merged_index,
             theme.default_text_color,
         );
     }
 
-    let _ = &prepared.first().map(|p| (p.r_off, p.c_off));
     CachedTile {
         key,
         sheet_origin_x,
@@ -612,11 +711,14 @@ fn emit_cell_text(
     doc: &SheetDocument,
     sheet: u32,
     coord: CellCoord,
+    is_merged: bool,
+    tile_clip: RectF,
     cell_rect: RectF,
     style: &CellStyle,
     raw_text: &str,
     val: &CellValue,
     col_index: &GridAxisIndex,
+    merged_index: &MergedRangeIndex,
     default_text_color: Color,
 ) {
     let font_size = (style.font.size_pt * 1.18).clamp(7.0, 84.0);
@@ -650,7 +752,7 @@ fn emit_cell_text(
         style.wrap_text,
     );
 
-    let (box_x, box_w, clip_rect) = if lines.len() == 1 && !style.wrap_text {
+    let (box_x, box_w, raw_clip) = if lines.len() == 1 && !style.wrap_text && !is_merged {
         let est_w = estimate_text_width_px(&lines[0], font_size, style.font.bold);
         let (_, _, extra_l, extra_r) = compute_overflow_extent(
             doc,
@@ -660,6 +762,7 @@ fn emit_cell_text(
             h_align,
             est_w - base_inner_w,
             col_index,
+            merged_index,
         );
         let bx = cell_rect.x - extra_l + pad_left;
         let bw = (base_inner_w + extra_l + extra_r).max(0.0);
@@ -679,6 +782,15 @@ fn emit_cell_text(
         );
         (cell_rect.x + pad_left, base_inner_w, clip)
     };
+
+    let cx0 = raw_clip.x.max(tile_clip.x);
+    let cy0 = raw_clip.y.max(tile_clip.y);
+    let cx1 = raw_clip.right().min(tile_clip.right());
+    let cy1 = raw_clip.bottom().min(tile_clip.bottom());
+    if cx1 <= cx0 || cy1 <= cy0 {
+        return;
+    }
+    let clip_rect = RectF::new(cx0, cy0, cx1 - cx0, cy1 - cy0);
 
     let n_lines = lines.len() as f32;
     let total_h = n_lines * line_h;

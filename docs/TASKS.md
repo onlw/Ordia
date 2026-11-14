@@ -211,9 +211,10 @@
 - 完成记录（2026-11-14）：在 `ordia-sheet-engine::numfmt` 中实现了完整的 Excel 数字格式引擎（`format_excel_value`、`format_excel_number_str`、`format_general_number`、`FormattedValue`），涵盖 General 智能科学计数切换、千分位与缩放逗号（`,`/`,,`）、`0`/`#`/`?` 数字掩码与向远离零取整、货币符号与多语言区域括号（`[$¥-804]`/`[$USD ]`/`[$€-407]`）、会计对齐（`_x` 留白与 `* ` 星号重复填充）、百分比、连分数有理逼近与固定分母分数（`# ?/?`、`# ?/8`、`# ??/100`）、科学与工程计数法（`0.00E+00`、`##0.0E+0`）、1900 日期时间序列值（含 Lotus 1-2-3 `1900-02-29` 兼容、毫秒 `.000`、累计时长 `[h]`/`[mm]`/`[ss]`）、中文日期星期与大小写数字（`yyyy"年"m"月"d"日"`、`aaaa`/`aaa`、`[$-804]mmmm`、`上午/下午`、`[DBNum1]`/`[DBNum2]`）、最多四段 `;` 分支及条件比较与调色板（`[>=100]`、`[Red]`、`[Color1..56]`），并接入 `IronCalcEngine::cell_display_text` 与 `ordia-sheet-layout` 条件文字着色；新增 234 个 Excel 格式化参考对照测试全部通过。
 
 ### M2-05 合并单元格、冻结窗格、隐藏行列、网格线开关、缩放（10%–400%）
-- 状态：TODO ｜ 依赖：M2-03
+- 状态：DONE ｜ 依赖：M2-03
 - 交付物：合并单元格区间索引（`MergedRangeIndex`，O(log M) 查询覆盖主格）、四象限冻结窗格独立裁剪与分隔线、行列头隐藏指示双线标记、工作表网格线显示/隐藏开关、10%–400% 画布无损缩放（状态栏滑块 + 快捷键 + 触控板/滚轮缩放）
-- 验收标准：[ ] UI 测试 + 视觉快照验证合并跨块绘制、冻结滚动、隐藏标记、网格线开关与多级缩放
+- 验收标准：[x] UI 测试 + 视觉快照验证合并跨块绘制、冻结滚动、隐藏标记、网格线开关与多级缩放
+- 完成记录（2026-11-14）：在 `ordia-sheet-layout::merged` 中实现基于静态增广区间树的 `MergedRangeIndex`（`O(log M)` 单格包含查询、锚点解析与分块相交裁剪），在 `cell_style_render` 中实现跨 `64×16` 分块边界的合并区域内部网格线抑制、无缝填充、复合外框边框与居中文本裁剪；在 `viewport`、`viewport_render` 与 `ordia-render-gpui` 中实现 `10%–400%` 矢量无损缩放（底层 `GridAxisIndex` 与 `CachedTile` 保持 `100%` 坐标实现缩放零分块重建，`paint_display_list_scaled` 实时按缩放比排版清晰字体）、四象限冻结窗格裁剪与分隔线以及行列头蓝色双线隐藏指示标记；在 `ordia-sheet-model` 与 `ordia-sheet-view` 中接入可撤销的隐藏行列/合并单元格/网格线开关事务与状态栏 `Slider` + 快捷键（`Cmd/Ctrl + =/-/0`、`Cmd/Ctrl+Shift+G`）+ `Cmd/Ctrl + 滚轮` 缩放，通过 5 组 `insta` + `tiny-skia` 视觉快照与无界面 UI 集成测试。
 
 ### M2-06 多工作表
 - 状态：TODO ｜ 依赖：M2-02

@@ -108,6 +108,11 @@ placeholder = "搜索命令或输入拼音首字母（如 bc 搜索保存）…"
 
 [sheet]
 toggle_perf_overlay = "切换帧耗时面板 (F12)"
+toggle_gridlines = "显示/隐藏网格线"
+zoom_in = "放大画布 (Cmd/Ctrl+=)"
+zoom_out = "缩小画布 (Cmd/Ctrl+-)"
+zoom_reset = "重置画布缩放至 100% (Cmd/Ctrl+0)"
+zoom_slider = "画布缩放比例"
 modified = "已修改"
 saved = "已保存"
 
