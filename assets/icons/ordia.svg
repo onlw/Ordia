@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1D4ED8"/>
+      <stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+  </defs>
+  <!-- Squircle background -->
+  <rect x="24" y="24" width="464" height="464" rx="108" fill="url(#bg)"/>
+  <!-- Paper-white spreadsheet card -->
+  <rect x="96" y="104" width="320" height="304" rx="28" fill="#FFFFFF"/>
+  <!-- Accent header bar -->
+  <path d="M96 132C96 116.536 108.536 104 124 104H388C403.464 104 416 116.536 416 132V168H96V132Z" fill="#2563EB"/>
+  <!-- Emerald formula indicator pill -->
+  <rect x="124" y="126" width="84" height="20" rx="10" fill="#34D399"/>
+  <!-- Clean grid lines -->
+  <line x1="96" y1="248" x2="416" y2="248" stroke="#E2E8F0" stroke-width="10"/>
+  <line x1="96" y1="328" x2="416" y2="328" stroke="#E2E8F0" stroke-width="10"/>
+  <line x1="216" y1="168" x2="216" y2="408" stroke="#E2E8F0" stroke-width="10"/>
+  <!-- Highlighted active selection cell -->
+  <rect x="228" y="182" width="172" height="54" rx="10" fill="#DBEAFE" stroke="#2563EB" stroke-width="6"/>
+</svg>

@@ -452,3 +452,63 @@ fn startup_detects_unclean_journal_and_recovers_last_flushed_transactions(cx: &m
     })
     .expect("verify startup crash recovery UI flow");
 }
+
+
+#[gpui_kit::test]
+fn about_screen_displays_version_license_and_third_party_notices(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        ordia_app::register_bindings_and_menus(cx);
+    });
+
+    assert_eq!(ordia_app::about_view::app_version(), "0.1.0");
+    assert_eq!(ordia_app::about_view::app_license(), "Apache-2.0");
+    let notices = ordia_app::about_view::third_party_notice_lines();
+    assert!(
+        notices.len() >= 100,
+        "expected comprehensive third-party notices, got {}",
+        notices.len()
+    );
+    assert!(notices.iter().any(|l| l.starts_with("ironcalc |")));
+
+    let (handle, view) = cx.update(|cx| {
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds::new(
+                    Default::default(),
+                    size(px(1200.), px(780.)),
+                ))),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| cx.new(|cx| MainWindow::new(window, cx)),
+        )
+        .expect("open headless window")
+    });
+
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(!view.read(cx).is_showing_about());
+
+        // Trigger `"help.about"` command from CommandRegistry (also accessible via Pinyin `"gy"` -> `"关于 Ordia"`!).
+        let about_hits = view.read(cx).command_registry().search("gy");
+        assert!(about_hits.iter().any(|c| c.id() == "help.about"));
+
+        let spec = view
+            .read(cx)
+            .command_registry()
+            .get("help.about")
+            .expect("help.about registered")
+            .clone();
+        view.update(cx, |this, cx| {
+            spec.execute(this, window, cx);
+        });
+        window.render_frame(cx);
+        assert!(view.read(cx).is_showing_about());
+
+        window.click("about-close", cx);
+        window.render_frame(cx);
+        assert!(!view.read(cx).is_showing_about());
+    })
+    .expect("verify About Ordia screen flow");
+}

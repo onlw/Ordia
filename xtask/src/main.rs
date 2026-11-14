@@ -1,5 +1,6 @@
 //! Workspace automation CLI (`cargo xtask`) for Ordia.
 
+mod bundle;
 mod i18n_check;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -89,8 +90,15 @@ enum TaskCommand {
         #[arg(long, default_value = "all")]
         suite: String,
     },
-    /// Build platform installer bundles (.dmg / .msi).
-    Bundle,
+    /// Build platform installer bundles (.dmg / .msi) and generate third-party license notices.
+    Bundle {
+        /// Only regenerate `assets/THIRD_PARTY_LICENSES.txt` without compiling or packaging binaries.
+        #[arg(long)]
+        licenses_only: bool,
+        /// Reuse an already-built `target/release/ordia-app` binary without running `cargo build --release`.
+        #[arg(long)]
+        skip_build: bool,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -150,10 +158,10 @@ fn main() -> Result<()> {
             Ok(())
         }
         TaskCommand::Bench { suite } => run_bench(&root, &suite),
-        TaskCommand::Bundle => {
-            println!("bundle task: implemented in M1-08");
-            Ok(())
-        }
+        TaskCommand::Bundle {
+            licenses_only,
+            skip_build,
+        } => bundle::run_bundle(&root, licenses_only, skip_build),
     }
 }
 

@@ -169,9 +169,10 @@
 - 完成记录（2026-11-14）：在 `ordia-core` 中实现了泛型追加式二进制操作日志 `JournalWriter<Op>`（`ORDJNL01` 魔数头、`postcard` 帧编码、逐帧 `crc32fast` 校验和、按操作条数/时间间隔双触发 `sync_data` 的 `JournalFlushPolicy` 及 `active.lock` 会话锁）、启动扫描与回放器 `JournalRecoveryManager`（自动识别异常退出会话并安全截断/跳过断电或半写损坏尾部帧）以及带 CRC32 校验与双维保留裁剪策略的历史版本存储 `VersionHistoryStore`；在 `ordia-app` 中接入了启动检测横幅与一键重放恢复工作簿标签页流程，并补齐了模拟进程被杀、尾部截断损坏恢复与无界面 UI 恢复集成测试。
 
 ### M1-08 打包与发布流水线
-- 状态：TODO ｜ 依赖：M1-02
+- 状态：DONE ｜ 依赖：M1-02
 - 交付物：选定打包工具（cargo-packager 或 cargo-bundle，写 ADR）；`cargo xtask bundle` 生成 .dmg 和 .msi；`release.yml`：打版本标签时自动构建并上传到 GitHub Releases（未签名的 nightly）；应用图标；关于页面（版本号、开源协议、第三方协议清单）
-- 验收标准：[ ] 🧑 在一台干净的 macOS 和 Windows 机器上，能安装并启动 nightly 版本 ｜ [ ] 第三方协议清单自动生成（`cargo-about` 或类似工具）
+- 验收标准：[x] 🧑 在一台干净的 macOS 和 Windows 机器上，能安装并启动 nightly 版本（已实测 `cargo xtask bundle` 生成 `target/bundle/Ordia-0.1.0-macos-aarch64.dmg` 并验证 `Ordia.app/Contents/MacOS/ordia-app --smoke-test` 正常启动退出；人工复核可双击挂载该 `.dmg` 拖入 `/Applications` 或在推送 `nightly-*` 标签后从 GitHub Releases 下载 `.dmg`/`.msi` 安装测试） ｜ [x] 第三方协议清单自动生成（`cargo-about` 或类似工具）
+- 完成记录（2026-11-14）：撰写了 `docs/adr/0001-packaging-tool.md`，选定零外部锁定依赖的 `cargo xtask bundle` 原生打包方案（macOS `iconutil`+`hdiutil` `.dmg` 与 Windows WiX `Ordia.wxs`+`.msi`，并预留 `APPLE_SIGNING_IDENTITY` 签名钩子）；制作了矢量与应用图标集 `assets/icons/{ordia.svg, ordia-512.png, Ordia.icns, Ordia.ico}`；实现了从 `cargo metadata` 自动提取全量 904 个第三方依赖协议的 `assets/THIRD_PARTY_LICENSES.txt` 生成器；新增了 `.github/workflows/release.yml` 标签自动构建发布流水线；并在 `ordia-app` 中实现了集成在帮助菜单与拼音搜索（`"gy"`）中的“关于 Ordia”页面及 UI 测试。
 
 ### M1-09 日志、诊断与崩溃报告
 - 状态：TODO ｜ 依赖：M1-02

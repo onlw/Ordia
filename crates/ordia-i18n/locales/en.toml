@@ -169,3 +169,15 @@ banner_message = "Ordia closed unexpectedly. {count} workbook session(s) ({names
 recover_action = "Recover"
 discard_action = "Discard"
 recovered_summary = "Recovered ({ops} operations)"
+
+[cmd.help]
+about = "About Ordia"
+
+[about]
+title = "About Ordia"
+subtitle = "High-performance, local-first cross-platform office suite built with Rust and GPUI."
+version_label = "Version {version}"
+license_label = "Open Source License: Apache-2.0"
+repo_label = "Repository: https://github.com/onlw/Ordia"
+third_party_heading = "Third-Party Open Source Notices ({count} crates)"
+close_btn = "Back to Workbook"

@@ -1,5 +1,7 @@
 //! Application shell, window management, commands, settings, and platform integration for Ordia.
 
+/// About Ordia screen with version, open-source license, and embedded third-party notices (`M1-08`).
+pub mod about_view;
 /// Unified command registry, shortcut conflict detection, and Command Palette items (`M1-03`).
 pub mod commands;
 /// Non-blocking background document loader, progress banner, and friendly error display (`M1-06`).
@@ -57,6 +59,7 @@ pub mod app_actions {
         [
             Quit,
             OpenSettings,
+            OpenAbout,
             ToggleTheme,
             ToggleSidebar,
             ToggleInspector,
@@ -70,7 +73,7 @@ pub mod app_actions {
     );
 }
 pub use app_actions::{
-    CloseActiveTab, NewWindow, NewWorkbookTab, OpenCommandPalette, OpenSettings, Quit,
+    CloseActiveTab, NewWindow, NewWorkbookTab, OpenAbout, OpenCommandPalette, OpenSettings, Quit,
     SaveWorkbook, ShowHome, ToggleInspector, ToggleSidebar, ToggleTheme,
 };
 
@@ -165,6 +168,7 @@ pub struct MainWindow {
     pub(crate) inspector_open: bool,
     pub(crate) show_home: bool,
     pub(crate) show_settings: bool,
+    pub(crate) show_about: bool,
     pub(crate) active_section: SidebarSection,
     pub(crate) tabs: Vec<WorkbookTab>,
     pub(crate) sheet_views: Vec<Entity<SheetWorkspaceView>>,
@@ -356,6 +360,7 @@ impl MainWindow {
             inspector_open: saved_state.inspector_open,
             show_home: false,
             show_settings: false,
+            show_about: false,
             active_section: SidebarSection::Recent,
             tabs,
             sheet_views,
@@ -420,6 +425,7 @@ impl MainWindow {
             inspector_open: saved_state.inspector_open,
             show_home: false,
             show_settings: false,
+            show_about: false,
             active_section: SidebarSection::Recent,
             tabs,
             sheet_views,
@@ -494,7 +500,7 @@ impl MainWindow {
 
     /// Returns the embedded [`SheetWorkspaceView`] for the currently active tab, if any.
     pub fn active_sheet_view(&self) -> Option<&Entity<SheetWorkspaceView>> {
-        if self.show_home || self.show_settings {
+        if self.show_home || self.show_settings || self.show_about {
             return None;
         }
         self.sheet_views.get(self.active_tab_ix)
@@ -512,7 +518,7 @@ impl MainWindow {
 
     /// Returns whether the Home screen is currently active (either explicitly or when all tabs are closed).
     pub fn is_showing_home(&self) -> bool {
-        !self.show_settings && (self.show_home || self.tabs.is_empty())
+        !self.show_settings && !self.show_about && (self.show_home || self.tabs.is_empty())
     }
 
     /// Returns whether the Settings screen is currently active.
@@ -656,6 +662,7 @@ impl MainWindow {
     /// Opens the Settings view (`Cmd/Ctrl+,`).
     pub fn open_settings_screen(&mut self, cx: &mut Context<Self>) {
         self.active_section = SidebarSection::Settings;
+        self.show_about = false;
         self.show_settings = true;
         cx.notify();
     }
@@ -725,6 +732,7 @@ impl MainWindow {
     /// Navigates to the Home screen (`Recent` & `Templates`).
     pub fn show_home_screen(&mut self, cx: &mut Context<Self>) {
         self.show_settings = false;
+        self.show_about = false;
         self.show_home = true;
         cx.notify();
     }
@@ -835,6 +843,7 @@ impl MainWindow {
         self.active_tab_ix = self.tabs.len().saturating_sub(1);
         self.show_home = false;
         self.show_settings = false;
+        self.show_about = false;
         cx.notify();
     }
 
@@ -903,8 +912,9 @@ impl MainWindow {
     }
 
     fn render_workspace_content(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let showing_settings = self.show_settings;
-        let showing_home = self.is_showing_home();
+        let showing_about = self.show_about;
+        let showing_settings = !showing_about && self.show_settings;
+        let showing_home = !showing_about && self.is_showing_home();
         let active_sheet = self.active_sheet_view().cloned();
 
         h_flex()
@@ -913,13 +923,14 @@ impl MainWindow {
             .min_w_0()
             .min_h_0()
             .bg(cx.theme().background)
+            .when(showing_about, |el| el.child(self.render_about_screen(cx)))
             .when(showing_settings, |el| {
                 el.child(self.render_settings_screen(cx))
             })
-            .when(!showing_settings && showing_home, |el| {
+            .when(!showing_about && !showing_settings && showing_home, |el| {
                 el.child(self.render_home_screen(cx))
             })
-            .when(!showing_settings && !showing_home, |el| {
+            .when(!showing_about && !showing_settings && !showing_home, |el| {
                 el.when_some(active_sheet, |row, sheet_view| row.child(sheet_view))
                     .when(self.inspector_open, |row| {
                         row.child(self.render_inspector_slot(cx))
@@ -936,7 +947,8 @@ impl Focusable for MainWindow {
 
 impl Render for MainWindow {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let showing_home_or_settings = self.is_showing_home() || self.show_settings;
+        let showing_home_or_settings =
+            self.is_showing_home() || self.show_settings || self.show_about;
         #[cfg(not(target_os = "macos"))]
         let win_menu = self.app_menu_bar.clone();
 
@@ -950,6 +962,9 @@ impl Render for MainWindow {
             }))
             .on_action(cx.listener(|this, _: &OpenSettings, _, cx| {
                 this.open_settings_screen(cx);
+            }))
+            .on_action(cx.listener(|this, _: &OpenAbout, _, cx| {
+                this.open_about_screen(cx);
             }))
             .on_action(cx.listener(|this, _: &OpenCommandPalette, window, cx| {
                 if this.palette_open {

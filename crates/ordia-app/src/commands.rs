@@ -13,8 +13,8 @@ use ordia_ui::OrdiaIcon;
 
 use crate::pinyin::fuzzy_or_pinyin_score;
 use crate::{
-    CloseActiveTab, MainWindow, NewWindow, NewWorkbookTab, OpenCommandPalette, OpenSettings, Quit,
-    SaveWorkbook, ShowHome, ToggleInspector, ToggleSidebar, ToggleTheme,
+    CloseActiveTab, MainWindow, NewWindow, NewWorkbookTab, OpenAbout, OpenCommandPalette,
+    OpenSettings, Quit, SaveWorkbook, ShowHome, ToggleInspector, ToggleSidebar, ToggleTheme,
 };
 
 type EnabledPredicate = Rc<dyn Fn(&MainWindow, &App) -> bool>;
@@ -32,6 +32,8 @@ pub enum CommandCategory {
     Edit,
     /// Appearance, panels, navigation, and palette commands.
     View,
+    /// Documentation, logs, diagnostics, and About Ordia commands.
+    Help,
 }
 
 impl CommandCategory {
@@ -42,6 +44,7 @@ impl CommandCategory {
             Self::File => ordia_i18n::t!("menu.file"),
             Self::Edit => ordia_i18n::t!("menu.edit"),
             Self::View => ordia_i18n::t!("menu.view"),
+            Self::Help => ordia_i18n::t!("menu.help"),
         }
     }
 }
@@ -426,9 +429,23 @@ impl CommandRegistry {
             shortcut_other: Some("ctrl-shift-d"),
             key_context: None,
             in_toolbar: false,
-            is_enabled: always,
+            is_enabled: always.clone(),
             make_action: Rc::new(|| Box::new(ToggleTheme)),
             execute: Rc::new(|win, window, cx| win.toggle_theme(window, cx)),
+        });
+
+        reg.register(CommandSpec {
+            id: "help.about",
+            category: CommandCategory::Help,
+            i18n_key: "cmd.help.about",
+            icon: Some(OrdiaIcon::Spreadsheet),
+            shortcut_macos: None,
+            shortcut_other: None,
+            key_context: None,
+            in_toolbar: false,
+            is_enabled: always,
+            make_action: Rc::new(|| Box::new(OpenAbout)),
+            execute: Rc::new(|win, _, cx| win.open_about_screen(cx)),
         });
 
         reg
