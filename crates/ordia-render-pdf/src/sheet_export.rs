@@ -1,6 +1,8 @@
 //! Converts a [`SheetDocument`] cell range into a platform-independent [`DisplayList`] page.
 
-use ordia_render::{Color, DisplayList, FontWeight, Point, RectF, StrokeStyle, TextRunStyle};
+use ordia_render::{
+    Color, DashPattern, DisplayList, FontWeight, Point, RectF, StrokeStyle, TextRunStyle,
+};
 use ordia_sheet_model::{
     BorderLineStyle, CellCoord, CellRange, CellValue, ColorRgba, DEFAULT_COL_WIDTH_PX,
     DEFAULT_ROW_HEIGHT_PX, EngineError, HorizontalAlign, SheetDocument,
@@ -167,24 +169,51 @@ fn draw_cell_borders(dl: &mut DisplayList, rect: RectF, borders: &ordia_sheet_mo
     let emit_edge = |dl: &mut DisplayList,
                      p0: Point,
                      p1: Point,
+                     normal: (f32, f32),
                      edge: &Option<ordia_sheet_model::BorderEdge>| {
         let Some(edge) = edge else {
             return;
-        };
-        let (width, dash) = match edge.style {
-            BorderLineStyle::Thin => (0.75, None),
-            BorderLineStyle::Medium | BorderLineStyle::Double => (1.5, None),
-            BorderLineStyle::Thick => (2.25, None),
-            BorderLineStyle::Dotted => (0.75, Some([1.0, 1.5])),
-            BorderLineStyle::MediumDashed
-            | BorderLineStyle::MediumDashDot
-            | BorderLineStyle::MediumDashDotDot
-            | BorderLineStyle::SlantDashDot => (1.25, Some([3.0, 2.0])),
         };
         let color = edge
             .color
             .map(to_render_color)
             .unwrap_or_else(|| Color::rgb(60, 66, 76));
+        if edge.style == BorderLineStyle::Double {
+            let thin = StrokeStyle::solid(0.65, color);
+            dl.draw_line(
+                Point::new(p0.x - normal.0 * 0.9, p0.y - normal.1 * 0.9),
+                Point::new(p1.x - normal.0 * 0.9, p1.y - normal.1 * 0.9),
+                thin,
+            );
+            dl.draw_line(
+                Point::new(p0.x + normal.0 * 0.9, p0.y + normal.1 * 0.9),
+                Point::new(p1.x + normal.0 * 0.9, p1.y + normal.1 * 0.9),
+                thin,
+            );
+            return;
+        }
+        let (width, dash) = match edge.style {
+            BorderLineStyle::Thin => (0.75, None),
+            BorderLineStyle::Medium => (1.5, None),
+            BorderLineStyle::Thick => (2.25, None),
+            BorderLineStyle::Double => unreachable!(),
+            BorderLineStyle::Hair => (0.4, Some(DashPattern::Simple([0.8, 0.8]))),
+            BorderLineStyle::Dotted => (0.75, Some(DashPattern::Simple([1.0, 1.5]))),
+            BorderLineStyle::Dashed => (0.75, Some(DashPattern::Simple([3.0, 2.0]))),
+            BorderLineStyle::DashDot => (0.75, Some(DashPattern::DashDot([4.0, 1.5, 1.0, 1.5]))),
+            BorderLineStyle::DashDotDot => (
+                0.75,
+                Some(DashPattern::DashDotDot([4.0, 1.5, 1.0, 1.5, 1.0, 1.5])),
+            ),
+            BorderLineStyle::MediumDashed => (1.35, Some(DashPattern::Simple([4.0, 2.0]))),
+            BorderLineStyle::MediumDashDot | BorderLineStyle::SlantDashDot => {
+                (1.35, Some(DashPattern::DashDot([4.5, 2.0, 1.5, 2.0])))
+            }
+            BorderLineStyle::MediumDashDotDot => (
+                1.35,
+                Some(DashPattern::DashDotDot([4.5, 1.8, 1.2, 1.8, 1.2, 1.8])),
+            ),
+        };
         dl.draw_line(p0, p1, StrokeStyle { width, color, dash });
     };
 
@@ -192,24 +221,28 @@ fn draw_cell_borders(dl: &mut DisplayList, rect: RectF, borders: &ordia_sheet_mo
         dl,
         Point::new(rect.x, rect.y),
         Point::new(rect.right(), rect.y),
+        (0.0, 1.0),
         &borders.top,
     );
     emit_edge(
         dl,
         Point::new(rect.x, rect.bottom()),
         Point::new(rect.right(), rect.bottom()),
+        (0.0, 1.0),
         &borders.bottom,
     );
     emit_edge(
         dl,
         Point::new(rect.x, rect.y),
         Point::new(rect.x, rect.bottom()),
+        (1.0, 0.0),
         &borders.left,
     );
     emit_edge(
         dl,
         Point::new(rect.right(), rect.y),
         Point::new(rect.right(), rect.bottom()),
+        (1.0, 0.0),
         &borders.right,
     );
 }

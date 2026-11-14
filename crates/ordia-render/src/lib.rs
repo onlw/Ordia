@@ -109,6 +109,29 @@ impl Default for Color {
     }
 }
 
+/// Fixed-capacity dash-gap pattern (`Copy`, zero heap allocation) for [`StrokeStyle`].
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub enum DashPattern {
+    /// Two-element `[dash, gap]` pattern (e.g. `Dashed`, `Dotted`, `Hair`).
+    Simple([f32; 2]),
+    /// Four-element `[dash, gap, dot, gap]` pattern (e.g. `DashDot`, `SlantDashDot`).
+    DashDot([f32; 4]),
+    /// Six-element `[dash, gap, dot, gap, dot, gap]` pattern (e.g. `DashDotDot`).
+    DashDotDot([f32; 6]),
+}
+
+impl DashPattern {
+    /// Borrows the alternating `[on, off, ...]` dash lengths.
+    #[must_use]
+    pub const fn as_slice(&self) -> &[f32] {
+        match self {
+            Self::Simple(arr) => arr,
+            Self::DashDot(arr) => arr,
+            Self::DashDotDot(arr) => arr,
+        }
+    }
+}
+
 /// Stroke style for lines and rectangle outlines.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct StrokeStyle {
@@ -116,8 +139,8 @@ pub struct StrokeStyle {
     pub width: f32,
     /// Stroke color.
     pub color: Color,
-    /// Optional `[dash_len, gap_len]` pattern (`None` = solid).
-    pub dash: Option<[f32; 2]>,
+    /// Optional dash pattern (`None` = solid).
+    pub dash: Option<DashPattern>,
 }
 
 impl StrokeStyle {

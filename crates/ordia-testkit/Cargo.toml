@@ -8,10 +8,15 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+crc32fast.workspace = true
 ordia-core.workspace = true
 ordia-render.workspace = true
 ordia-sheet-engine.workspace = true
+ordia-text.workspace = true
 ordia-xlsx.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tiny-skia.workspace = true
 
 [lints]
 workspace = true

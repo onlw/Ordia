@@ -199,9 +199,10 @@
 - 完成记录（2026-11-14）：在 `ordia-sheet-layout::tile_cache` 中实现了 `64×16` 单元格分块（`TileKey`、`CachedTile`、`SheetTileCache`、`plan_viewport_tiles`、`build_tile_display_list`），结合 `ordia-sheet-model::SheetDamage`（追踪无公式与有公式场景下的最小脏区域，通过 `has_formulas` 与 `formula_cells_bounded` 精准定位受影响依赖单元格）实现单单元格/区域/起始行列级精准失效；在 `ordia-render-gpui` 中新增两代 `ShapedTextCache` 与 `paint_display_list_cached` 避免每帧重复文本排版，并在 `ordia-sheet-view` 中将选区独立为 `O(1)` 顶层矩形叠加层（移动选区 0 块失效）与每帧 2 块渐进环绕一屏预取，通过单元测试与 120 帧连续滚动 P99 无界面基准测试（全流程含渲染 120 帧总耗时 0.52s，P99 < 25ms debug / < 8ms release）。
 
 ### M2-03 单元格样式渲染
-- 状态：TODO ｜ 依赖：M2-02
+- 状态：DONE ｜ 依赖：M2-02
 - 交付物：`ordia-sheet-layout`、`ordia-render`、`ordia-render-gpui` 完整支持单元格字体、字号、粗体/斜体/下划线/删除线、文字颜色、背景填充、全部边框线型（Thin/Medium/Thick/Double/Dashed/Dotted/DashDot/Hair）、水平与垂直对齐、自动换行、缩进、长文本向相邻空单元格溢出裁剪
-- 验收标准：[ ] `insta` DisplayList 快照与 `tiny-skia` 视觉快照测试覆盖每一种样式组合
+- 验收标准：[x] `insta` DisplayList 快照与 `tiny-skia` 视觉快照测试覆盖每一种样式组合
+- 完成记录（2026-11-14）：在 `ordia-render` 中新增零堆分配的多段虚线模式 `DashPattern`（支持二段/四段/六段交替点划）并在 `ordia-render-gpui`、`ordia-render-pdf` 与 `ordia-testkit` 三端同步支持；在 `ordia-sheet-engine` 中补齐全部 13 种 OOXML 边框线型（含 `Hair`/`Dashed`/`DashDot`/`DashDotDot`）与 `indent` 缩进属性（含 `xl/styles.xml` `<cellXfs>` 解析与内存保真层）；在 `ordia-sheet-layout::cell_style_render` 中实现了四遍分块绘制流水线（网格线溢出抑制 → 背景填充 → 双平行线 `Double`/斜线及全线型边框 → 水平/垂直对齐、缩进、`Fill` 重复填充、中英文分词自动换行与相邻空单元格左右/居中双向溢出裁剪）；在 `ordia-testkit` 中实现了跨平台确定性 `tiny-skia` 光栅化器与 `VisualSnapshotSummary`，通过 8 份 `insta` `DisplayList` 与视觉快照覆盖全部样式组合。
 
 ### M2-04 数字格式引擎
 - 状态：TODO ｜ 依赖：M0-03

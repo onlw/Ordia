@@ -1,0 +1,359 @@
+---
+source: crates/ordia-sheet-layout/tests/style_snapshots.rs
+expression: "&dl.commands"
+---
+- PushClip:
+    rect:
+      x: 0
+      y: 0
+      width: 89
+      height: 55
+- DrawText:
+    origin:
+      x: 5
+      y: 46.828
+    text: TextGen
+    style:
+      font_family: ~
+      font_size: 14.16
+      weight: Regular
+      italic: false
+      underline: false
+      strikethrough: false
+      color:
+        r: 26
+        g: 26
+        b: 26
+        a: 255
+      h_align: Left
+      max_width: 80
+- PopClip
+- PushClip:
+    rect:
+      x: 90
+      y: 0
+      width: 89
+      height: 55
+- DrawText:
+    origin:
+      x: 95
+      y: 46.828
+    text: "42195"
+    style:
+      font_family: ~
+      font_size: 14.16
+      weight: Regular
+      italic: false
+      underline: false
+      strikethrough: false
+      color:
+        r: 26
+        g: 26
+        b: 26
+        a: 255
+      h_align: Right
+      max_width: 80
+- PopClip
+- PushClip:
+    rect:
+      x: 180
+      y: 0
+      width: 89
+      height: 55
+- DrawText:
+    origin:
+      x: 185
+      y: 46.828
+    text: "TRUE"
+    style:
+      font_family: ~
+      font_size: 14.16
+      weight: Regular
+      italic: false
+      underline: false
+      strikethrough: false
+      color:
+        r: 26
+        g: 26
+        b: 26
+        a: 255
+      h_align: Center
+      max_width: 80
+- PopClip
+- PushClip:
+    rect:
+      x: 270
+      y: 0
+      width: 89
+      height: 55
+- DrawText:
+    origin:
+      x: 275
+      y: 46.828
+    text: "#DIV/0!"
+    style:
+      font_family: ~
+      font_size: 14.16
+      weight: Regular
+      italic: false
+      underline: false
+      strikethrough: false
+      color:
+        r: 26
+        g: 26
+        b: 26
+        a: 255
+      h_align: Center
+      max_width: 80
+- PopClip
+- PushClip:
+    rect:
+      x: 0
+      y: 56
+      width: 89
+      height: 55
+- DrawText:
+    origin:
+      x: 21
+      y: 68.884
+    text: Indent2
+    style:
+      font_family: ~
+      font_size: 12.98
+      weight: Regular
+      italic: false
+      underline: false
+      strikethrough: false
+      color:
+        r: 26
+        g: 26
+        b: 26
+        a: 255
+      h_align: Left
+      max_width: 64
+- PopClip
+- PushClip:
+    rect:
+      x: 90
+      y: 56
+      width: 89
+      height: 55
+- DrawText:
+    origin:
+      x: 95
+      y: 86.384
+    text: MidBox
+    style:
+      font_family: ~
+      font_size: 12.98
+      weight: Regular
+      italic: false
+      underline: false
+      strikethrough: false
+      color:
+        r: 26
+        g: 26
+        b: 26
+        a: 255
+      h_align: Center
+      max_width: 80
+- PopClip
+- PushClip:
+    rect:
+      x: 180
+      y: 56
+      width: 89
+      height: 55
+- DrawText:
+    origin:
+      x: 185
+      y: 103.884
+    text: RightIn
+    style:
+      font_family: ~
+      font_size: 12.98
+      weight: Regular
+      italic: false
+      underline: false
+      strikethrough: false
+      color:
+        r: 26
+        g: 26
+        b: 26
+        a: 255
+      h_align: Right
+      max_width: 72
+- PopClip
+- PushClip:
+    rect:
+      x: 270
+      y: 56
+      width: 89
+      height: 55
+- DrawText:
+    origin:
+      x: 275
+      y: 86.384
+    text: "*-*-*-*-*-*-"
+    style:
+      font_family: ~
+      font_size: 12.98
+      weight: Regular
+      italic: false
+      underline: false
+      strikethrough: false
+      color:
+        r: 26
+        g: 26
+        b: 26
+        a: 255
+      h_align: Left
+      max_width: 80
+- PopClip
+- PushClip:
+    rect:
+      x: 0
+      y: 112
+      width: 89
+      height: 55
+- DrawText:
+    origin:
+      x: 5
+      y: 124.884
+    text: Quarterly
+    style:
+      font_family: ~
+      font_size: 12.98
+      weight: Regular
+      italic: false
+      underline: false
+      strikethrough: false
+      color:
+        r: 26
+        g: 26
+        b: 26
+        a: 255
+      h_align: Left
+      max_width: 80
+- DrawText:
+    origin:
+      x: 5
+      y: 140.884
+    text: revenue
+    style:
+      font_family: ~
+      font_size: 12.98
+      weight: Regular
+      italic: false
+      underline: false
+      strikethrough: false
+      color:
+        r: 26
+        g: 26
+        b: 26
+        a: 255
+      h_align: Left
+      max_width: 80
+- DrawText:
+    origin:
+      x: 5
+      y: 156.884
+    text: forecast
+    style:
+      font_family: ~
+      font_size: 12.98
+      weight: Regular
+      italic: false
+      underline: false
+      strikethrough: false
+      color:
+        r: 26
+        g: 26
+        b: 26
+        a: 255
+      h_align: Left
+      max_width: 80
+- DrawText:
+    origin:
+      x: 5
+      y: 172.884
+    text: summary
+    style:
+      font_family: ~
+      font_size: 12.98
+      weight: Regular
+      italic: false
+      underline: false
+      strikethrough: false
+      color:
+        r: 26
+        g: 26
+        b: 26
+        a: 255
+      h_align: Left
+      max_width: 80
+- PopClip
+- PushClip:
+    rect:
+      x: 90
+      y: 112
+      width: 89
+      height: 55
+- DrawText:
+    origin:
+      x: 95
+      y: 124.884
+    text: 自动换行长中
+    style:
+      font_family: ~
+      font_size: 12.98
+      weight: Regular
+      italic: false
+      underline: false
+      strikethrough: false
+      color:
+        r: 26
+        g: 26
+        b: 26
+        a: 255
+      h_align: Center
+      max_width: 80
+- DrawText:
+    origin:
+      x: 95
+      y: 142.384
+    text: 文内容排版验
+    style:
+      font_family: ~
+      font_size: 12.98
+      weight: Regular
+      italic: false
+      underline: false
+      strikethrough: false
+      color:
+        r: 26
+        g: 26
+        b: 26
+        a: 255
+      h_align: Center
+      max_width: 80
+- DrawText:
+    origin:
+      x: 95
+      y: 159.884
+    text: 证
+    style:
+      font_family: ~
+      font_size: 12.98
+      weight: Regular
+      italic: false
+      underline: false
+      strikethrough: false
+      color:
+        r: 26
+        g: 26
+        b: 26
+        a: 255
+      h_align: Center
+      max_width: 80
+- PopClip

@@ -17,7 +17,7 @@ use krilla::num::NormalizedF32;
 use krilla::page::PageSettings;
 use krilla::paint::{Fill, FillRule, Stroke, StrokeDash};
 use krilla::text::{Font as KrillaFont, TextDirection};
-use ordia_render::{Color, DisplayList, FontWeight, RectF, RenderCommand};
+use ordia_render::{Color, DisplayList, FontWeight, RectF, RenderCommand, StrokeStyle, TextHAlign};
 use ordia_sheet_model::{CellRange, EngineError, SheetDocument};
 use ordia_text::{FontCatalog, TextError, contains_cjk};
 use serde::Serialize;
@@ -160,16 +160,62 @@ pub fn render_display_lists_to_pdf(
                         parsed
                     };
 
+                    let est_w: f32 = text
+                        .chars()
+                        .map(|ch| {
+                            if ch.is_ascii() {
+                                style.font_size * 0.54
+                            } else {
+                                style.font_size
+                            }
+                        })
+                        .sum();
+                    let draw_x = match (style.h_align, style.max_width) {
+                        (TextHAlign::Right, Some(mw)) => (origin.x + mw - est_w).max(origin.x),
+                        (TextHAlign::Center, Some(mw)) => {
+                            (origin.x + (mw - est_w) * 0.5).max(origin.x)
+                        }
+                        _ => origin.x,
+                    };
+
                     surface.set_fill(Some(to_krilla_fill(style.color)));
                     surface.set_stroke(None);
                     surface.draw_text(
-                        KrillaPoint::from_xy(origin.x, origin.y),
+                        KrillaPoint::from_xy(draw_x, origin.y),
                         k_font,
                         style.font_size,
                         text,
                         false,
                         TextDirection::LeftToRight,
                     );
+                    if style.underline {
+                        let uy = origin.y + style.font_size * 0.12;
+                        let mut pb = PathBuilder::new();
+                        pb.move_to(draw_x, uy);
+                        pb.line_to(draw_x + est_w, uy);
+                        if let Some(p) = pb.finish() {
+                            surface.set_fill(None);
+                            surface.set_stroke(Some(to_krilla_stroke(StrokeStyle::solid(
+                                (style.font_size * 0.07).max(0.6),
+                                style.color,
+                            ))));
+                            surface.draw_path(&p);
+                        }
+                    }
+                    if style.strikethrough {
+                        let sy = origin.y - style.font_size * 0.28;
+                        let mut pb = PathBuilder::new();
+                        pb.move_to(draw_x, sy);
+                        pb.line_to(draw_x + est_w, sy);
+                        if let Some(p) = pb.finish() {
+                            surface.set_fill(None);
+                            surface.set_stroke(Some(to_krilla_stroke(StrokeStyle::solid(
+                                (style.font_size * 0.07).max(0.6),
+                                style.color,
+                            ))));
+                            surface.draw_path(&p);
+                        }
+                    }
                 }
                 RenderCommand::PushClip { rect } => {
                     let clip_rect =
@@ -297,10 +343,10 @@ fn to_krilla_fill(color: Color) -> Fill {
     }
 }
 
-fn to_krilla_stroke(stroke: ordia_render::StrokeStyle) -> Stroke {
+fn to_krilla_stroke(stroke: StrokeStyle) -> Stroke {
     let alpha = (f32::from(stroke.color.a) / 255.0).clamp(0.0, 1.0);
-    let dash = stroke.dash.map(|[d, g]| StrokeDash {
-        array: vec![d, g],
+    let dash = stroke.dash.map(|pat| StrokeDash {
+        array: pat.as_slice().to_vec(),
         offset: 0.0,
     });
     Stroke {

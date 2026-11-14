@@ -23,13 +23,53 @@ use ironcalc_base::types::{
     SpillValue, Style as IcStyle, Theme as IcTheme, VerticalAlignment,
 };
 use ironcalc_base::{COLUMN_WIDTH_FACTOR, Model, ROW_HEIGHT_FACTOR};
-use std::io::{Cursor, Write};
+use std::collections::HashMap;
+use std::io::{Cursor, Read, Write};
 use std::path::Path;
+
+#[derive(Debug, Clone, Copy, Default)]
+struct ExtraStyleAttrs {
+    indent: u8,
+    exact_size_pt: Option<f32>,
+    /// `[top, right, bottom, left, diagonal]` OOXML border style overrides not distinct in IronCalc.
+    border_styles: [Option<BorderLineStyle>; 5],
+}
+
+impl ExtraStyleAttrs {
+    fn is_empty(self) -> bool {
+        self.indent == 0
+            && self.exact_size_pt.is_none()
+            && self.border_styles.iter().all(Option::is_none)
+    }
+
+    fn apply_to(self, style: &mut CellStyle) {
+        if self.indent > 0 {
+            style.indent = self.indent;
+        }
+        if let Some(sz) = self.exact_size_pt {
+            style.font.size_pt = sz;
+        }
+        let slots = [
+            &mut style.borders.top,
+            &mut style.borders.right,
+            &mut style.borders.bottom,
+            &mut style.borders.left,
+            &mut style.borders.diagonal,
+        ];
+        for (slot, ov) in slots.into_iter().zip(self.border_styles) {
+            if let (Some(edge), Some(bs)) = (slot.as_mut(), ov) {
+                edge.style = bs;
+            }
+        }
+    }
+}
 
 /// Spreadsheet engine backed by IronCalc (`ironcalc` / `ironcalc_base` `=0.9.1`).
 pub struct IronCalcEngine {
     model: Model<'static>,
     dirty_evaluation: bool,
+    extra_styles: HashMap<(u32, CellCoord), ExtraStyleAttrs>,
+    xf_extras: Vec<ExtraStyleAttrs>,
 }
 
 impl std::fmt::Debug for IronCalcEngine {
@@ -53,6 +93,8 @@ impl IronCalcEngine {
         Ok(Self {
             model,
             dirty_evaluation: false,
+            extra_styles: HashMap::new(),
+            xf_extras: Vec::new(),
         })
     }
 
@@ -79,6 +121,7 @@ impl IronCalcEngine {
     pub fn from_xlsx_bytes_unrecalculated(bytes: &[u8], name: &str) -> Result<Self, EngineError> {
         let workbook = load_from_xlsx_bytes(bytes, name, "en", "UTC").map_err(map_xlsx_error)?;
         let model = Model::from_workbook(workbook, "en").map_err(EngineError::Format)?;
+        let xf_extras = parse_xlsx_xf_extras(bytes);
         let has_unevaluated = model.workbook.worksheets.iter().any(|ws| {
             ws.sheet_data.cells().any(|(_, _, c)| {
                 matches!(
@@ -96,6 +139,8 @@ impl IronCalcEngine {
         Ok(Self {
             model,
             dirty_evaluation: has_unevaluated,
+            extra_styles: HashMap::new(),
+            xf_extras,
         })
     }
 
@@ -456,13 +501,24 @@ impl SheetEngine for IronCalcEngine {
     }
 
     fn cell_style(&self, sheet: u32, coord: CellCoord) -> Result<CellStyle, EngineError> {
-        let _ = self.check_sheet(sheet)?;
+        let ws_idx = self.check_sheet(sheet)?;
         let (ic_row, ic_col) = Self::to_ic_coord(coord)?;
         let style = self
             .model
             .get_style_for_cell(sheet, ic_row, ic_col)
             .map_err(EngineError::Mutation)?;
-        Ok(ic_style_to_ordia(&style, &self.model.workbook.theme))
+        let mut resolved = ic_style_to_ordia(&style, &self.model.workbook.theme);
+        if let Some(cell) = self.model.workbook.worksheets[ws_idx].cell(ic_row, ic_col)
+            && let Some(xf_ext) = usize::try_from(cell.get_style())
+                .ok()
+                .and_then(|idx| self.xf_extras.get(idx))
+        {
+            xf_ext.apply_to(&mut resolved);
+        }
+        if let Some(ext) = self.extra_styles.get(&(sheet, coord)) {
+            ext.apply_to(&mut resolved);
+        }
+        Ok(resolved)
     }
 
     fn set_cell_style(
@@ -476,7 +532,14 @@ impl SheetEngine for IronCalcEngine {
         let ic_style = ordia_style_to_ic(style);
         self.model
             .set_cell_style(sheet, ic_row, ic_col, &ic_style)
-            .map_err(EngineError::Mutation)
+            .map_err(EngineError::Mutation)?;
+        let extra = extra_attrs_from_style(style);
+        if extra.is_empty() {
+            self.extra_styles.remove(&(sheet, coord));
+        } else {
+            self.extra_styles.insert((sheet, coord), extra);
+        }
+        Ok(())
     }
 
     fn merged_ranges(&self, sheet: u32) -> Result<Vec<CellRange>, EngineError> {
@@ -926,15 +989,47 @@ fn ic_border_style_to_ordia(style: &IcBorderStyle) -> BorderLineStyle {
 
 fn ordia_border_style_to_ic(style: BorderLineStyle) -> IcBorderStyle {
     match style {
-        BorderLineStyle::Thin => IcBorderStyle::Thin,
+        BorderLineStyle::Thin | BorderLineStyle::Hair => IcBorderStyle::Thin,
         BorderLineStyle::Medium => IcBorderStyle::Medium,
         BorderLineStyle::Thick => IcBorderStyle::Thick,
         BorderLineStyle::Double => IcBorderStyle::Double,
         BorderLineStyle::Dotted => IcBorderStyle::Dotted,
-        BorderLineStyle::MediumDashed => IcBorderStyle::MediumDashed,
-        BorderLineStyle::MediumDashDot => IcBorderStyle::MediumDashDot,
-        BorderLineStyle::MediumDashDotDot => IcBorderStyle::MediumDashDotDot,
+        BorderLineStyle::Dashed | BorderLineStyle::MediumDashed => IcBorderStyle::MediumDashed,
+        BorderLineStyle::DashDot | BorderLineStyle::MediumDashDot => IcBorderStyle::MediumDashDot,
+        BorderLineStyle::DashDotDot | BorderLineStyle::MediumDashDotDot => {
+            IcBorderStyle::MediumDashDotDot
+        }
         BorderLineStyle::SlantDashDot => IcBorderStyle::SlantDashDot,
+    }
+}
+
+fn is_non_ic_border_style(style: BorderLineStyle) -> bool {
+    matches!(
+        style,
+        BorderLineStyle::Hair
+            | BorderLineStyle::Dashed
+            | BorderLineStyle::DashDot
+            | BorderLineStyle::DashDotDot
+    )
+}
+
+fn extra_attrs_from_style(style: &CellStyle) -> ExtraStyleAttrs {
+    let keep_border = |edge: Option<BorderEdge>| -> Option<BorderLineStyle> {
+        let bs = edge?.style;
+        is_non_ic_border_style(bs).then_some(bs)
+    };
+    let exact_size_pt = ((style.font.size_pt - style.font.size_pt.round()).abs() > 0.01)
+        .then_some(style.font.size_pt);
+    ExtraStyleAttrs {
+        indent: style.indent,
+        exact_size_pt,
+        border_styles: [
+            keep_border(style.borders.top),
+            keep_border(style.borders.right),
+            keep_border(style.borders.bottom),
+            keep_border(style.borders.left),
+            keep_border(style.borders.diagonal),
+        ],
     }
 }
 
@@ -1000,6 +1095,7 @@ fn ic_style_to_ordia(style: &IcStyle, theme: &IcTheme) -> CellStyle {
         horizontal_align,
         vertical_align,
         wrap_text,
+        indent: 0,
         number_format: style.num_fmt.clone(),
         quote_prefix: style.quote_prefix,
     }
@@ -1064,4 +1160,165 @@ fn ordia_style_to_ic(style: &CellStyle) -> IcStyle {
         },
         quote_prefix: style.quote_prefix,
     }
+}
+
+fn parse_xlsx_xf_extras(xlsx_bytes: &[u8]) -> Vec<ExtraStyleAttrs> {
+    use quick_xml::Reader;
+    use quick_xml::events::Event;
+
+    let Ok(mut archive) = zip::ZipArchive::new(Cursor::new(xlsx_bytes)) else {
+        return Vec::new();
+    };
+    let Ok(mut styles_file) = archive.by_name("xl/styles.xml") else {
+        return Vec::new();
+    };
+    let mut xml = String::new();
+    if styles_file.read_to_string(&mut xml).is_err() {
+        return Vec::new();
+    }
+
+    let parse_extra_bs = |val: &str| -> Option<BorderLineStyle> {
+        match val {
+            "hair" => Some(BorderLineStyle::Hair),
+            "dashed" => Some(BorderLineStyle::Dashed),
+            "dashDot" => Some(BorderLineStyle::DashDot),
+            "dashDotDot" => Some(BorderLineStyle::DashDotDot),
+            _ => None,
+        }
+    };
+
+    let mut borders_table: Vec<[Option<BorderLineStyle>; 5]> = Vec::new();
+    let mut current_border: Option<[Option<BorderLineStyle>; 5]> = None;
+    let mut in_borders = false;
+    let mut in_cell_xfs = false;
+    let mut xfs: Vec<(Option<usize>, u8)> = Vec::new();
+    let mut current_xf: Option<(Option<usize>, u8)> = None;
+
+    let reader = Reader::from_str(&xml);
+    let mut reader = reader;
+    reader.config_mut().trim_text(true);
+
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(ref e)) => {
+                let local = e.local_name();
+                match local.as_ref() {
+                    "borders" => in_borders = true,
+                    "border" if in_borders => current_border = Some([None; 5]),
+                    "top" | "right" | "bottom" | "left" | "diagonal" if in_borders => {
+                        if let Some(cb) = current_border.as_mut() {
+                            let slot = match local.as_ref() {
+                                "top" => 0,
+                                "right" => 1,
+                                "bottom" => 2,
+                                "left" => 3,
+                                _ => 4,
+                            };
+                            for attr in e.attributes().flatten() {
+                                if attr.key.local_name().as_ref() == "style" {
+                                    let v = attr.value.as_ref();
+                                    cb[slot] = parse_extra_bs(v);
+                                }
+                            }
+                        }
+                    }
+                    "cellXfs" => in_cell_xfs = true,
+                    "xf" if in_cell_xfs => {
+                        let mut border_id = None;
+                        for attr in e.attributes().flatten() {
+                            if attr.key.local_name().as_ref() == "borderId" {
+                                let v = attr.value.as_ref();
+                                border_id = v.parse::<usize>().ok();
+                            }
+                        }
+                        current_xf = Some((border_id, 0));
+                    }
+                    "alignment" if in_cell_xfs => {
+                        if let Some((_, indent)) = current_xf.as_mut() {
+                            for attr in e.attributes().flatten() {
+                                if attr.key.local_name().as_ref() == "indent" {
+                                    let v = attr.value.as_ref();
+                                    if let Ok(n) = v.parse::<u16>() {
+                                        *indent = n.min(250) as u8;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Event::Empty(ref e)) => {
+                let local = e.local_name();
+                match local.as_ref() {
+                    "border" if in_borders => borders_table.push([None; 5]),
+                    "top" | "right" | "bottom" | "left" | "diagonal" if in_borders => {
+                        if let Some(cb) = current_border.as_mut() {
+                            let slot = match local.as_ref() {
+                                "top" => 0,
+                                "right" => 1,
+                                "bottom" => 2,
+                                "left" => 3,
+                                _ => 4,
+                            };
+                            for attr in e.attributes().flatten() {
+                                if attr.key.local_name().as_ref() == "style" {
+                                    let v = attr.value.as_ref();
+                                    cb[slot] = parse_extra_bs(v);
+                                }
+                            }
+                        }
+                    }
+                    "xf" if in_cell_xfs => {
+                        let mut border_id = None;
+                        for attr in e.attributes().flatten() {
+                            if attr.key.local_name().as_ref() == "borderId" {
+                                let v = attr.value.as_ref();
+                                border_id = v.parse::<usize>().ok();
+                            }
+                        }
+                        xfs.push((border_id, 0));
+                    }
+                    "alignment" if in_cell_xfs => {
+                        if let Some((_, indent)) = current_xf.as_mut() {
+                            for attr in e.attributes().flatten() {
+                                if attr.key.local_name().as_ref() == "indent" {
+                                    let v = attr.value.as_ref();
+                                    if let Ok(n) = v.parse::<u16>() {
+                                        *indent = n.min(250) as u8;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Event::End(ref e)) => match e.local_name().as_ref() {
+                "borders" => in_borders = false,
+                "border" if in_borders => {
+                    borders_table.push(current_border.take().unwrap_or([None; 5]));
+                }
+                "cellXfs" => in_cell_xfs = false,
+                "xf" if in_cell_xfs => {
+                    if let Some(xf) = current_xf.take() {
+                        xfs.push(xf);
+                    }
+                }
+                _ => {}
+            },
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+    }
+
+    xfs.into_iter()
+        .map(|(border_id, indent)| ExtraStyleAttrs {
+            indent,
+            exact_size_pt: None,
+            border_styles: border_id
+                .and_then(|idx| borders_table.get(idx).copied())
+                .unwrap_or([None; 5]),
+        })
+        .collect()
 }

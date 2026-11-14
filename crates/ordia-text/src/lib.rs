@@ -170,7 +170,10 @@ pub fn contains_cjk(text: &str) -> bool {
     text.chars().any(is_cjk_char)
 }
 
-fn is_cjk_char(ch: char) -> bool {
+/// Returns `true` if `ch` is a CJK Unified Ideograph, CJK symbol/punctuation, Fullwidth form,
+/// Hiragana, Katakana, or Hangul syllable.
+#[must_use]
+pub fn is_cjk_char(ch: char) -> bool {
     matches!(
         ch as u32,
         0x2E80..=0x2FFF

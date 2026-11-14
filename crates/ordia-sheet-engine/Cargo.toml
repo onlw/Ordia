@@ -11,8 +11,10 @@ publish = false
 ironcalc.workspace = true
 ironcalc_base.workspace = true
 ordia-core.workspace = true
+quick-xml.workspace = true
 serde.workspace = true
 thiserror.workspace = true
+zip.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

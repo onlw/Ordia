@@ -222,8 +222,13 @@ fn paint_slice(
             }
             RenderCommand::DrawLine { start, end, stroke } => {
                 let mut pb = PathBuilder::stroke(px(stroke.width.max(0.5)));
-                if let Some([dash_len, gap_len]) = stroke.dash {
-                    pb = pb.dash_array(&[px(dash_len), px(gap_len)]);
+                if let Some(pat) = stroke.dash {
+                    let mut px_buf = [px(0.0); 6];
+                    let slice = pat.as_slice();
+                    for (dst, &v) in px_buf.iter_mut().zip(slice.iter()) {
+                        *dst = px(v);
+                    }
+                    pb = pb.dash_array(&px_buf[..slice.len()]);
                 }
                 pb.move_to(point(origin.x + px(start.x), origin.y + px(start.y)));
                 pb.line_to(point(origin.x + px(end.x), origin.y + px(end.y)));

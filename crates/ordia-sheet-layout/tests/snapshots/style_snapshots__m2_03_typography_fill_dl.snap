@@ -1,0 +1,80 @@
+---
+source: crates/ordia-sheet-layout/tests/style_snapshots.rs
+expression: "&dl.commands"
+---
+- FillRect:
+    rect:
+      x: 0
+      y: 0
+      width: 89
+      height: 35
+    color:
+      r: 254
+      g: 243
+      b: 199
+      a: 255
+    corner_radius: 0
+- FillRect:
+    rect:
+      x: 90
+      y: 0
+      width: 89
+      height: 35
+    color:
+      r: 209
+      g: 250
+      b: 229
+      a: 255
+    corner_radius: 0
+- PushClip:
+    rect:
+      x: 0
+      y: 0
+      width: 89
+      height: 35
+- DrawText:
+    origin:
+      x: 5
+      y: 24.604
+    text: Headline 16
+    style:
+      font_family: Georgia
+      font_size: 18.88
+      weight: Bold
+      italic: true
+      underline: false
+      strikethrough: false
+      color:
+        r: 185
+        g: 28
+        b: 28
+        a: 255
+      h_align: Left
+      max_width: 80
+- PopClip
+- PushClip:
+    rect:
+      x: 90
+      y: 0
+      width: 89
+      height: 35
+- DrawText:
+    origin:
+      x: 95
+      y: 27.411999
+    text: Code_v2
+    style:
+      font_family: Courier New
+      font_size: 12.389999
+      weight: Regular
+      italic: false
+      underline: true
+      strikethrough: true
+      color:
+        r: 6
+        g: 95
+        b: 70
+        a: 255
+      h_align: Left
+      max_width: 80
+- PopClip

@@ -397,7 +397,7 @@ pub enum VerticalAlign {
     Distributed,
 }
 
-/// OOXML cell border stroke style.
+/// OOXML cell border stroke style (`ST_BorderStyle`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BorderLineStyle {
     /// Thin solid border (`1px`).
@@ -406,10 +406,18 @@ pub enum BorderLineStyle {
     Medium,
     /// Thick solid border (`3px`).
     Thick,
-    /// Double-line border.
+    /// Double-line parallel border.
     Double,
+    /// Ultra-fine hairline / fine-dot border.
+    Hair,
     /// Dotted border.
     Dotted,
+    /// Thin dashed border.
+    Dashed,
+    /// Thin dash-dot border.
+    DashDot,
+    /// Thin dash-dot-dot border.
+    DashDotDot,
     /// Medium dashed border.
     MediumDashed,
     /// Medium dash-dot border.
@@ -496,6 +504,9 @@ pub struct CellStyle {
     pub vertical_align: VerticalAlign,
     /// Whether text wraps within column width.
     pub wrap_text: bool,
+    /// Horizontal indentation level (`0..=250`, where each unit indents by ~3 space widths).
+    #[serde(default)]
+    pub indent: u8,
     /// Excel number format string (e.g. `"general"`, `"#,##0.00"`, `"yyyy-mm-dd"`).
     pub number_format: String,
     /// Leading apostrophe text-prefix indicator (`'123`).
@@ -511,6 +522,7 @@ impl Default for CellStyle {
             horizontal_align: HorizontalAlign::General,
             vertical_align: VerticalAlign::Bottom,
             wrap_text: false,
+            indent: 0,
             number_format: "general".to_string(),
             quote_prefix: false,
         }

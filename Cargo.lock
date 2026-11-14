@@ -5523,17 +5523,21 @@ dependencies = [
  "ironcalc",
  "ironcalc_base",
  "ordia-core",
+ "quick-xml 0.42.0",
  "serde",
  "tempfile",
  "thiserror 2.0.21",
+ "zip",
 ]
 
 [[package]]
 name = "ordia-sheet-layout"
 version = "0.1.0"
 dependencies = [
+ "insta",
  "ordia-render",
  "ordia-sheet-model",
+ "ordia-testkit",
  "ordia-text",
  "proptest",
 ]
@@ -5564,10 +5568,15 @@ dependencies = [
 name = "ordia-testkit"
 version = "0.1.0"
 dependencies = [
+ "crc32fast",
  "ordia-core",
  "ordia-render",
  "ordia-sheet-engine",
+ "ordia-text",
  "ordia-xlsx",
+ "serde",
+ "thiserror 2.0.21",
+ "tiny-skia 0.12.0",
 ]
 
 [[package]]
@@ -6569,7 +6578,7 @@ dependencies = [
  "pico-args",
  "rgb",
  "svgtypes 0.15.3",
- "tiny-skia",
+ "tiny-skia 0.11.4",
  "usvg 0.45.1",
  "zune-jpeg 0.4.21",
 ]
@@ -6586,7 +6595,7 @@ dependencies = [
  "pico-args",
  "rgb",
  "svgtypes 0.16.2",
- "tiny-skia",
+ "tiny-skia 0.11.4",
  "usvg 0.46.0",
  "zune-jpeg 0.5.15",
 ]
@@ -7756,6 +7765,21 @@ dependencies = [
  "log",
  "png 0.17.16",
  "tiny-skia-path 0.11.4",
+]
+
+[[package]]
+name = "tiny-skia"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47ffee5eaaf5527f630fb0e356b90ebdec84d5d18d937c5e440350f88c5a91ea"
+dependencies = [
+ "arrayref",
+ "arrayvec",
+ "bytemuck",
+ "cfg-if",
+ "log",
+ "png 0.18.1",
+ "tiny-skia-path 0.12.0",
 ]
 
 [[package]]

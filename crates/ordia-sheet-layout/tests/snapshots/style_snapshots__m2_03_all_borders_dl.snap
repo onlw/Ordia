@@ -1,0 +1,1376 @@
+---
+source: crates/ordia-sheet-layout/tests/style_snapshots.rs
+expression: "&dl.commands"
+---
+- DrawLine:
+    start:
+      x: 0
+      y: 0
+    end:
+      x: 90
+      y: 0
+    stroke:
+      width: 1
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash: ~
+- DrawLine:
+    start:
+      x: 0
+      y: 25
+    end:
+      x: 90
+      y: 25
+    stroke:
+      width: 1
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash: ~
+- DrawLine:
+    start:
+      x: 0
+      y: 0
+    end:
+      x: 0
+      y: 25
+    stroke:
+      width: 1
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash: ~
+- DrawLine:
+    start:
+      x: 90
+      y: 0
+    end:
+      x: 90
+      y: 25
+    stroke:
+      width: 1
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash: ~
+- DrawLine:
+    start:
+      x: 0
+      y: 25
+    end:
+      x: 90
+      y: 0
+    stroke:
+      width: 2
+      color:
+        r: 220
+        g: 38
+        b: 38
+        a: 255
+      dash: ~
+- DrawLine:
+    start:
+      x: 0
+      y: 0
+    end:
+      x: 90
+      y: 25
+    stroke:
+      width: 2
+      color:
+        r: 220
+        g: 38
+        b: 38
+        a: 255
+      dash: ~
+- DrawLine:
+    start:
+      x: 90
+      y: 0
+    end:
+      x: 180
+      y: 0
+    stroke:
+      width: 2
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash: ~
+- DrawLine:
+    start:
+      x: 90
+      y: 25
+    end:
+      x: 180
+      y: 25
+    stroke:
+      width: 2
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash: ~
+- DrawLine:
+    start:
+      x: 90
+      y: 0
+    end:
+      x: 90
+      y: 25
+    stroke:
+      width: 2
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash: ~
+- DrawLine:
+    start:
+      x: 180
+      y: 0
+    end:
+      x: 180
+      y: 25
+    stroke:
+      width: 2
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash: ~
+- DrawLine:
+    start:
+      x: 180
+      y: 0
+    end:
+      x: 270
+      y: 0
+    stroke:
+      width: 3
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash: ~
+- DrawLine:
+    start:
+      x: 180
+      y: 25
+    end:
+      x: 270
+      y: 25
+    stroke:
+      width: 3
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash: ~
+- DrawLine:
+    start:
+      x: 180
+      y: 0
+    end:
+      x: 180
+      y: 25
+    stroke:
+      width: 3
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash: ~
+- DrawLine:
+    start:
+      x: 270
+      y: 0
+    end:
+      x: 270
+      y: 25
+    stroke:
+      width: 3
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash: ~
+- DrawLine:
+    start:
+      x: 270
+      y: -1
+    end:
+      x: 360
+      y: -1
+    stroke:
+      width: 1
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash: ~
+- DrawLine:
+    start:
+      x: 270
+      y: 1
+    end:
+      x: 360
+      y: 1
+    stroke:
+      width: 1
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash: ~
+- DrawLine:
+    start:
+      x: 270
+      y: 24
+    end:
+      x: 360
+      y: 24
+    stroke:
+      width: 1
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash: ~
+- DrawLine:
+    start:
+      x: 270
+      y: 26
+    end:
+      x: 360
+      y: 26
+    stroke:
+      width: 1
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash: ~
+- DrawLine:
+    start:
+      x: 269
+      y: 0
+    end:
+      x: 269
+      y: 25
+    stroke:
+      width: 1
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash: ~
+- DrawLine:
+    start:
+      x: 271
+      y: 0
+    end:
+      x: 271
+      y: 25
+    stroke:
+      width: 1
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash: ~
+- DrawLine:
+    start:
+      x: 359
+      y: 0
+    end:
+      x: 359
+      y: 25
+    stroke:
+      width: 1
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash: ~
+- DrawLine:
+    start:
+      x: 361
+      y: 0
+    end:
+      x: 361
+      y: 25
+    stroke:
+      width: 1
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash: ~
+- DrawLine:
+    start:
+      x: 0
+      y: 50
+    end:
+      x: 90
+      y: 50
+    stroke:
+      width: 0.5
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        Simple:
+          - 1
+          - 1
+- DrawLine:
+    start:
+      x: 0
+      y: 75
+    end:
+      x: 90
+      y: 75
+    stroke:
+      width: 0.5
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        Simple:
+          - 1
+          - 1
+- DrawLine:
+    start:
+      x: 0
+      y: 50
+    end:
+      x: 0
+      y: 75
+    stroke:
+      width: 0.5
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        Simple:
+          - 1
+          - 1
+- DrawLine:
+    start:
+      x: 90
+      y: 50
+    end:
+      x: 90
+      y: 75
+    stroke:
+      width: 0.5
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        Simple:
+          - 1
+          - 1
+- DrawLine:
+    start:
+      x: 90
+      y: 50
+    end:
+      x: 180
+      y: 50
+    stroke:
+      width: 1
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        Simple:
+          - 1.5
+          - 1.5
+- DrawLine:
+    start:
+      x: 90
+      y: 75
+    end:
+      x: 180
+      y: 75
+    stroke:
+      width: 1
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        Simple:
+          - 1.5
+          - 1.5
+- DrawLine:
+    start:
+      x: 90
+      y: 50
+    end:
+      x: 90
+      y: 75
+    stroke:
+      width: 1
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        Simple:
+          - 1.5
+          - 1.5
+- DrawLine:
+    start:
+      x: 180
+      y: 50
+    end:
+      x: 180
+      y: 75
+    stroke:
+      width: 1
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        Simple:
+          - 1.5
+          - 1.5
+- DrawLine:
+    start:
+      x: 180
+      y: 50
+    end:
+      x: 270
+      y: 50
+    stroke:
+      width: 1
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        Simple:
+          - 4
+          - 2
+- DrawLine:
+    start:
+      x: 180
+      y: 75
+    end:
+      x: 270
+      y: 75
+    stroke:
+      width: 1
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        Simple:
+          - 4
+          - 2
+- DrawLine:
+    start:
+      x: 180
+      y: 50
+    end:
+      x: 180
+      y: 75
+    stroke:
+      width: 1
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        Simple:
+          - 4
+          - 2
+- DrawLine:
+    start:
+      x: 270
+      y: 50
+    end:
+      x: 270
+      y: 75
+    stroke:
+      width: 1
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        Simple:
+          - 4
+          - 2
+- DrawLine:
+    start:
+      x: 270
+      y: 50
+    end:
+      x: 360
+      y: 50
+    stroke:
+      width: 1
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        DashDot:
+          - 5
+          - 2
+          - 1.5
+          - 2
+- DrawLine:
+    start:
+      x: 270
+      y: 75
+    end:
+      x: 360
+      y: 75
+    stroke:
+      width: 1
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        DashDot:
+          - 5
+          - 2
+          - 1.5
+          - 2
+- DrawLine:
+    start:
+      x: 270
+      y: 50
+    end:
+      x: 270
+      y: 75
+    stroke:
+      width: 1
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        DashDot:
+          - 5
+          - 2
+          - 1.5
+          - 2
+- DrawLine:
+    start:
+      x: 360
+      y: 50
+    end:
+      x: 360
+      y: 75
+    stroke:
+      width: 1
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        DashDot:
+          - 5
+          - 2
+          - 1.5
+          - 2
+- DrawLine:
+    start:
+      x: 0
+      y: 100
+    end:
+      x: 90
+      y: 100
+    stroke:
+      width: 1
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        DashDotDot:
+          - 5
+          - 2
+          - 1.5
+          - 2
+          - 1.5
+          - 2
+- DrawLine:
+    start:
+      x: 0
+      y: 125
+    end:
+      x: 90
+      y: 125
+    stroke:
+      width: 1
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        DashDotDot:
+          - 5
+          - 2
+          - 1.5
+          - 2
+          - 1.5
+          - 2
+- DrawLine:
+    start:
+      x: 0
+      y: 100
+    end:
+      x: 0
+      y: 125
+    stroke:
+      width: 1
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        DashDotDot:
+          - 5
+          - 2
+          - 1.5
+          - 2
+          - 1.5
+          - 2
+- DrawLine:
+    start:
+      x: 90
+      y: 100
+    end:
+      x: 90
+      y: 125
+    stroke:
+      width: 1
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        DashDotDot:
+          - 5
+          - 2
+          - 1.5
+          - 2
+          - 1.5
+          - 2
+- DrawLine:
+    start:
+      x: 90
+      y: 100
+    end:
+      x: 180
+      y: 100
+    stroke:
+      width: 2
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        Simple:
+          - 6
+          - 3
+- DrawLine:
+    start:
+      x: 90
+      y: 125
+    end:
+      x: 180
+      y: 125
+    stroke:
+      width: 2
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        Simple:
+          - 6
+          - 3
+- DrawLine:
+    start:
+      x: 90
+      y: 100
+    end:
+      x: 90
+      y: 125
+    stroke:
+      width: 2
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        Simple:
+          - 6
+          - 3
+- DrawLine:
+    start:
+      x: 180
+      y: 100
+    end:
+      x: 180
+      y: 125
+    stroke:
+      width: 2
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        Simple:
+          - 6
+          - 3
+- DrawLine:
+    start:
+      x: 180
+      y: 100
+    end:
+      x: 270
+      y: 100
+    stroke:
+      width: 2
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        DashDot:
+          - 6
+          - 2.5
+          - 2
+          - 2.5
+- DrawLine:
+    start:
+      x: 180
+      y: 125
+    end:
+      x: 270
+      y: 125
+    stroke:
+      width: 2
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        DashDot:
+          - 6
+          - 2.5
+          - 2
+          - 2.5
+- DrawLine:
+    start:
+      x: 180
+      y: 100
+    end:
+      x: 180
+      y: 125
+    stroke:
+      width: 2
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        DashDot:
+          - 6
+          - 2.5
+          - 2
+          - 2.5
+- DrawLine:
+    start:
+      x: 270
+      y: 100
+    end:
+      x: 270
+      y: 125
+    stroke:
+      width: 2
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        DashDot:
+          - 6
+          - 2.5
+          - 2
+          - 2.5
+- DrawLine:
+    start:
+      x: 270
+      y: 100
+    end:
+      x: 360
+      y: 100
+    stroke:
+      width: 2
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        DashDotDot:
+          - 6
+          - 2
+          - 2
+          - 2
+          - 2
+          - 2
+- DrawLine:
+    start:
+      x: 270
+      y: 125
+    end:
+      x: 360
+      y: 125
+    stroke:
+      width: 2
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        DashDotDot:
+          - 6
+          - 2
+          - 2
+          - 2
+          - 2
+          - 2
+- DrawLine:
+    start:
+      x: 270
+      y: 100
+    end:
+      x: 270
+      y: 125
+    stroke:
+      width: 2
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        DashDotDot:
+          - 6
+          - 2
+          - 2
+          - 2
+          - 2
+          - 2
+- DrawLine:
+    start:
+      x: 360
+      y: 100
+    end:
+      x: 360
+      y: 125
+    stroke:
+      width: 2
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        DashDotDot:
+          - 6
+          - 2
+          - 2
+          - 2
+          - 2
+          - 2
+- DrawLine:
+    start:
+      x: 0
+      y: 150
+    end:
+      x: 90
+      y: 150
+    stroke:
+      width: 2
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        DashDot:
+          - 6
+          - 2.5
+          - 2
+          - 2.5
+- DrawLine:
+    start:
+      x: 0
+      y: 175
+    end:
+      x: 90
+      y: 175
+    stroke:
+      width: 2
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        DashDot:
+          - 6
+          - 2.5
+          - 2
+          - 2.5
+- DrawLine:
+    start:
+      x: 0
+      y: 150
+    end:
+      x: 0
+      y: 175
+    stroke:
+      width: 2
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        DashDot:
+          - 6
+          - 2.5
+          - 2
+          - 2.5
+- DrawLine:
+    start:
+      x: 90
+      y: 150
+    end:
+      x: 90
+      y: 175
+    stroke:
+      width: 2
+      color:
+        r: 30
+        g: 64
+        b: 175
+        a: 255
+      dash:
+        DashDot:
+          - 6
+          - 2.5
+          - 2
+          - 2.5
+- PushClip:
+    rect:
+      x: 0
+      y: 0
+      width: 89
+      height: 24
+- DrawText:
+    origin:
+      x: 5
+      y: 16.883999
+    text: B0
+    style:
+      font_family: ~
+      font_size: 12.98
+      weight: Regular
+      italic: false
+      underline: false
+      strikethrough: false
+      color:
+        r: 26
+        g: 26
+        b: 26
+        a: 255
+      h_align: Left
+      max_width: 80
+- PopClip
+- PushClip:
+    rect:
+      x: 90
+      y: 0
+      width: 89
+      height: 24
+- DrawText:
+    origin:
+      x: 95
+      y: 16.883999
+    text: B1
+    style:
+      font_family: ~
+      font_size: 12.98
+      weight: Regular
+      italic: false
+      underline: false
+      strikethrough: false
+      color:
+        r: 26
+        g: 26
+        b: 26
+        a: 255
+      h_align: Left
+      max_width: 80
+- PopClip
+- PushClip:
+    rect:
+      x: 180
+      y: 0
+      width: 89
+      height: 24
+- DrawText:
+    origin:
+      x: 185
+      y: 16.883999
+    text: B2
+    style:
+      font_family: ~
+      font_size: 12.98
+      weight: Regular
+      italic: false
+      underline: false
+      strikethrough: false
+      color:
+        r: 26
+        g: 26
+        b: 26
+        a: 255
+      h_align: Left
+      max_width: 80
+- PopClip
+- PushClip:
+    rect:
+      x: 270
+      y: 0
+      width: 89
+      height: 24
+- DrawText:
+    origin:
+      x: 275
+      y: 16.883999
+    text: B3
+    style:
+      font_family: ~
+      font_size: 12.98
+      weight: Regular
+      italic: false
+      underline: false
+      strikethrough: false
+      color:
+        r: 26
+        g: 26
+        b: 26
+        a: 255
+      h_align: Left
+      max_width: 80
+- PopClip
+- PushClip:
+    rect:
+      x: 0
+      y: 50
+      width: 89
+      height: 24
+- DrawText:
+    origin:
+      x: 5
+      y: 66.884
+    text: B4
+    style:
+      font_family: ~
+      font_size: 12.98
+      weight: Regular
+      italic: false
+      underline: false
+      strikethrough: false
+      color:
+        r: 26
+        g: 26
+        b: 26
+        a: 255
+      h_align: Left
+      max_width: 80
+- PopClip
+- PushClip:
+    rect:
+      x: 90
+      y: 50
+      width: 89
+      height: 24
+- DrawText:
+    origin:
+      x: 95
+      y: 66.884
+    text: B5
+    style:
+      font_family: ~
+      font_size: 12.98
+      weight: Regular
+      italic: false
+      underline: false
+      strikethrough: false
+      color:
+        r: 26
+        g: 26
+        b: 26
+        a: 255
+      h_align: Left
+      max_width: 80
+- PopClip
+- PushClip:
+    rect:
+      x: 180
+      y: 50
+      width: 89
+      height: 24
+- DrawText:
+    origin:
+      x: 185
+      y: 66.884
+    text: B6
+    style:
+      font_family: ~
+      font_size: 12.98
+      weight: Regular
+      italic: false
+      underline: false
+      strikethrough: false
+      color:
+        r: 26
+        g: 26
+        b: 26
+        a: 255
+      h_align: Left
+      max_width: 80
+- PopClip
+- PushClip:
+    rect:
+      x: 270
+      y: 50
+      width: 89
+      height: 24
+- DrawText:
+    origin:
+      x: 275
+      y: 66.884
+    text: B7
+    style:
+      font_family: ~
+      font_size: 12.98
+      weight: Regular
+      italic: false
+      underline: false
+      strikethrough: false
+      color:
+        r: 26
+        g: 26
+        b: 26
+        a: 255
+      h_align: Left
+      max_width: 80
+- PopClip
+- PushClip:
+    rect:
+      x: 0
+      y: 100
+      width: 89
+      height: 24
+- DrawText:
+    origin:
+      x: 5
+      y: 116.884
+    text: B8
+    style:
+      font_family: ~
+      font_size: 12.98
+      weight: Regular
+      italic: false
+      underline: false
+      strikethrough: false
+      color:
+        r: 26
+        g: 26
+        b: 26
+        a: 255
+      h_align: Left
+      max_width: 80
+- PopClip
+- PushClip:
+    rect:
+      x: 90
+      y: 100
+      width: 89
+      height: 24
+- DrawText:
+    origin:
+      x: 95
+      y: 116.884
+    text: B9
+    style:
+      font_family: ~
+      font_size: 12.98
+      weight: Regular
+      italic: false
+      underline: false
+      strikethrough: false
+      color:
+        r: 26
+        g: 26
+        b: 26
+        a: 255
+      h_align: Left
+      max_width: 80
+- PopClip
+- PushClip:
+    rect:
+      x: 180
+      y: 100
+      width: 89
+      height: 24
+- DrawText:
+    origin:
+      x: 185
+      y: 116.884
+    text: B10
+    style:
+      font_family: ~
+      font_size: 12.98
+      weight: Regular
+      italic: false
+      underline: false
+      strikethrough: false
+      color:
+        r: 26
+        g: 26
+        b: 26
+        a: 255
+      h_align: Left
+      max_width: 80
+- PopClip
+- PushClip:
+    rect:
+      x: 270
+      y: 100
+      width: 89
+      height: 24
+- DrawText:
+    origin:
+      x: 275
+      y: 116.884
+    text: B11
+    style:
+      font_family: ~
+      font_size: 12.98
+      weight: Regular
+      italic: false
+      underline: false
+      strikethrough: false
+      color:
+        r: 26
+        g: 26
+        b: 26
+        a: 255
+      h_align: Left
+      max_width: 80
+- PopClip
+- PushClip:
+    rect:
+      x: 0
+      y: 150
+      width: 89
+      height: 24
+- DrawText:
+    origin:
+      x: 5
+      y: 166.884
+    text: B12
+    style:
+      font_family: ~
+      font_size: 12.98
+      weight: Regular
+      italic: false
+      underline: false
+      strikethrough: false
+      color:
+        r: 26
+        g: 26
+        b: 26
+        a: 255
+      h_align: Left
+      max_width: 80
+- PopClip

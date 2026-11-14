@@ -1,10 +1,12 @@
 //! Grid geometry, O(log N) coordinate indexing, tile caching, pagination, and `DisplayList` generation.
 
 mod axis;
+mod cell_style_render;
 mod tile_cache;
 mod viewport;
 
 pub use axis::GridAxisIndex;
+pub use cell_style_render::{estimate_text_width_px, wrap_cell_text};
 pub use tile_cache::{
     CachedTile, DEFAULT_MAX_CACHED_TILES, SheetTileCache, TILE_COLS, TILE_ROWS, TileKey, TilePlan,
     TileRenderTheme, build_tile_display_list, plan_viewport_tiles,
