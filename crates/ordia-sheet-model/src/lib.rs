@@ -15,9 +15,10 @@ pub use ordia_core::{Document, DocumentError, DocumentKind, LoadProgress, LoadSt
 pub use ordia_sheet_engine::{
     BorderEdge, BorderLineStyle, CellBorders, CellComment, CellCoord, CellHyperlink, CellRange,
     CellStyle, CellValue, ColSpanMetric, ColorRgba, DEFAULT_COL_WIDTH_PX, DEFAULT_ROW_HEIGHT_PX,
-    DefinedNameInfo, EngineError, FontStyle, FormulaError, FreezePane, HorizontalAlign,
-    IronCalcEngine, MAX_COLS, MAX_ROWS, RowMetric, SheetEngine, SheetInfo, SheetVisibility,
-    VerticalAlign, col_to_letters, letters_to_col_1based,
+    DefinedNameInfo, EngineError, FontStyle, FormattedValue, FormulaError, FreezePane,
+    HorizontalAlign, IronCalcEngine, MAX_COLS, MAX_ROWS, RowMetric, SheetEngine, SheetInfo,
+    SheetVisibility, VerticalAlign, col_to_letters, format_excel_number_str, format_excel_value,
+    format_general_number, letters_to_col_1based,
 };
 
 #[cfg(test)]

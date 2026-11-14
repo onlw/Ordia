@@ -715,6 +715,14 @@ fn emit_cell_text(
     } else {
         Some(style.font.name.clone())
     };
+    let cond_color = style
+        .number_format
+        .contains('[')
+        .then(|| ordia_sheet_model::format_excel_value(val, &style.number_format).color)
+        .flatten();
+    let resolved_fg = cond_color
+        .or(style.font.color)
+        .map_or(default_text_color, to_render_color);
     let base_style = TextRunStyle {
         font_family: family,
         font_size,
@@ -726,7 +734,7 @@ fn emit_cell_text(
         italic: style.font.italic,
         underline: style.font.underline,
         strikethrough: style.font.strikethrough,
-        color: style.font.color.map_or(default_text_color, to_render_color),
+        color: resolved_fg,
         h_align,
         max_width: Some(box_w),
     };

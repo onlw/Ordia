@@ -205,9 +205,10 @@
 - 完成记录（2026-11-14）：在 `ordia-render` 中新增零堆分配的多段虚线模式 `DashPattern`（支持二段/四段/六段交替点划）并在 `ordia-render-gpui`、`ordia-render-pdf` 与 `ordia-testkit` 三端同步支持；在 `ordia-sheet-engine` 中补齐全部 13 种 OOXML 边框线型（含 `Hair`/`Dashed`/`DashDot`/`DashDotDot`）与 `indent` 缩进属性（含 `xl/styles.xml` `<cellXfs>` 解析与内存保真层）；在 `ordia-sheet-layout::cell_style_render` 中实现了四遍分块绘制流水线（网格线溢出抑制 → 背景填充 → 双平行线 `Double`/斜线及全线型边框 → 水平/垂直对齐、缩进、`Fill` 重复填充、中英文分词自动换行与相邻空单元格左右/居中双向溢出裁剪）；在 `ordia-testkit` 中实现了跨平台确定性 `tiny-skia` 光栅化器与 `VisualSnapshotSummary`，通过 8 份 `insta` `DisplayList` 与视觉快照覆盖全部样式组合。
 
 ### M2-04 数字格式引擎
-- 状态：TODO ｜ 依赖：M0-03
+- 状态：DONE ｜ 依赖：M0-03
 - 交付物：`ordia-sheet-engine` 中的完备 Excel 数字格式器（`format_excel_value`）：通用（General）、数值（千分位、小数位、括号红字负数）、货币、会计专用、日期与时间（1900 序列值含 Lotus 1-2-3 闰年兼容）、百分比、分数、科学计数、文本 `@`、最多四段 `;` 自定义格式代码及条件颜色/条件段（`[Red]`、`[>=100]`），完整支持中文日期（`yyyy"年"m"月"d"日"`、`aaaa`/`aaa` 星期等）
-- 验收标准：[ ] 与 Excel 格式化结果对照表测试 ≥ 200 个用例全部通过
+- 验收标准：[x] 与 Excel 格式化结果对照表测试 ≥ 200 个用例全部通过
+- 完成记录（2026-11-14）：在 `ordia-sheet-engine::numfmt` 中实现了完整的 Excel 数字格式引擎（`format_excel_value`、`format_excel_number_str`、`format_general_number`、`FormattedValue`），涵盖 General 智能科学计数切换、千分位与缩放逗号（`,`/`,,`）、`0`/`#`/`?` 数字掩码与向远离零取整、货币符号与多语言区域括号（`[$¥-804]`/`[$USD ]`/`[$€-407]`）、会计对齐（`_x` 留白与 `* ` 星号重复填充）、百分比、连分数有理逼近与固定分母分数（`# ?/?`、`# ?/8`、`# ??/100`）、科学与工程计数法（`0.00E+00`、`##0.0E+0`）、1900 日期时间序列值（含 Lotus 1-2-3 `1900-02-29` 兼容、毫秒 `.000`、累计时长 `[h]`/`[mm]`/`[ss]`）、中文日期星期与大小写数字（`yyyy"年"m"月"d"日"`、`aaaa`/`aaa`、`[$-804]mmmm`、`上午/下午`、`[DBNum1]`/`[DBNum2]`）、最多四段 `;` 分支及条件比较与调色板（`[>=100]`、`[Red]`、`[Color1..56]`），并接入 `IronCalcEngine::cell_display_text` 与 `ordia-sheet-layout` 条件文字着色；新增 234 个 Excel 格式化参考对照测试全部通过。
 
 ### M2-05 合并单元格、冻结窗格、隐藏行列、网格线开关、缩放（10%–400%）
 - 状态：TODO ｜ 依赖：M2-03

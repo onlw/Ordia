@@ -377,9 +377,15 @@ impl SheetEngine for IronCalcEngine {
     fn cell_display_text(&self, sheet: u32, coord: CellCoord) -> Result<String, EngineError> {
         let _ = self.check_sheet(sheet)?;
         let (ic_row, ic_col) = Self::to_ic_coord(coord)?;
-        self.model
-            .get_formatted_cell_value(sheet, ic_row, ic_col)
-            .map_err(EngineError::Mutation)
+        let val = self.cell_value(sheet, coord)?;
+        if matches!(val, CellValue::Empty) {
+            return Ok(String::new());
+        }
+        let style = self
+            .model
+            .get_style_for_cell(sheet, ic_row, ic_col)
+            .map_err(EngineError::Mutation)?;
+        Ok(crate::numfmt::format_excel_value(&val, &style.num_fmt).text)
     }
 
     fn cell_formula(&self, sheet: u32, coord: CellCoord) -> Result<Option<String>, EngineError> {

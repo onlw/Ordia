@@ -7,11 +7,15 @@
 
 mod error;
 mod ironcalc_impl;
+mod numfmt;
 mod traits;
 mod types;
 
 pub use error::EngineError;
 pub use ironcalc_impl::IronCalcEngine;
+pub use numfmt::{
+    FormattedValue, format_excel_number_str, format_excel_value, format_general_number,
+};
 pub use traits::SheetEngine;
 pub use types::{
     BorderEdge, BorderLineStyle, CellBorders, CellComment, CellCoord, CellHyperlink, CellRange,
